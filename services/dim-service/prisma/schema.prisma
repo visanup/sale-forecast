@@ -1,0 +1,80 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model dim_company {
+  company_id   BigInt  @id @default(autoincrement()) @db.BigInt
+  company_code String  @unique
+  company_desc String?
+
+  @@map("dim_company")
+}
+
+model dim_dept {
+  dept_id   BigInt @id @default(autoincrement()) @db.BigInt
+  dept_code String @unique
+
+  @@map("dim_dept")
+}
+
+model dim_distribution_channel {
+  dc_id   BigInt @id @default(autoincrement()) @db.BigInt
+  dc_code String @unique
+  dc_desc String?
+
+  @@map("dim_distribution_channel")
+}
+
+model dim_material {
+  material_id   BigInt @id @default(autoincrement()) @db.BigInt
+  material_code String @unique
+  material_desc String?
+  skus          dim_sku[]
+
+  @@map("dim_material")
+}
+
+model dim_uom {
+  uom_id   BigInt @id @default(autoincrement()) @db.BigInt
+  uom_code String @unique
+  skus     dim_sku[]
+
+  @@map("dim_uom")
+}
+
+model dim_sku {
+  sku_id     BigInt @id @default(autoincrement()) @db.BigInt
+  material_id BigInt
+  pack_size  String
+  uom_id     BigInt
+
+  material dim_material @relation(fields: [material_id], references: [material_id])
+  uom      dim_uom      @relation(fields: [uom_id], references: [uom_id])
+
+  @@unique([material_id, pack_size, uom_id])
+  @@map("dim_sku")
+}
+
+model dim_sales_org {
+  sales_org_id        BigInt @id @default(autoincrement()) @db.BigInt
+  division            String?
+  sales_organization  String?
+  sales_office        String?
+  sales_group         String?
+  sales_representative String?
+
+  @@unique([division, sales_organization, sales_office, sales_group, sales_representative])
+  @@map("dim_sales_org")
+}
+
+model dim_month {
+  month_id DateTime @id @db.Date
+  yyyy_mm  String   @unique
+
+  @@map("dim_month")
+}

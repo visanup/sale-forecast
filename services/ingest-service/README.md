@@ -1,0 +1,56 @@
+# Ingest Service
+
+Endpoints to ingest forecast via manual JSON or Excel upload.
+
+## Run
+- Dev: `yarn dev` (port 6602)
+- Build/Start: `yarn build && yarn start`
+
+## Env
+- `PORT` (default 6602)
+- `DATABASE_URL`
+
+## Endpoints
+- Health: `GET /health`
+- Manual: `POST /v1/manual` (application/json)
+- Upload: `POST /v1/upload` (multipart/form-data: fields `file`, `anchorMonth`)
+
+## Payload examples
+- Manual JSON (min 1 line):
+```json
+{
+  "anchorMonth": "2025-01",
+  "lines": [
+    {
+      "company_code": "ACME",
+      "dept_code": "D01",
+      "dc_code": "DC1",
+      "division": "DIV",
+      "sales_organization": "SO",
+      "sales_office": "SOFF",
+      "sales_group": "SG",
+      "sales_representative": "SR",
+      "material_code": "MAT001",
+      "pack_size": "1L",
+      "uom_code": "EA",
+      "months": [
+        { "month": "2025-01", "qty": 100, "price": 9.99 },
+        { "month": "2025-02", "qty": 120 }
+      ]
+    }
+  ]
+}
+```
+
+## Quick test
+```bash
+# health
+curl -s http://localhost:6602/health
+# manual
+curl -s -H "Content-Type: application/json" \
+  -d '{"anchorMonth":"2025-01","lines":[{"company_code":"ACME","dept_code":"D01","dc_code":"DC1","material_code":"MAT001","pack_size":"1L","uom_code":"EA","months":[{"month":"2025-01","qty":100}]}]}' \
+  http://localhost:6602/v1/manual
+# upload (requires sample_upload.xlsx)
+curl -s -F "file=@sample_upload.xlsx" -F "anchorMonth=2025-01" http://localhost:6602/v1/upload
+```
+

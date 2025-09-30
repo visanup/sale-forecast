@@ -1,0 +1,35 @@
+{
+  "openapi": "3.0.3",
+  "info": { "title": "Data Service API", "version": "v1" },
+  "servers": [{ "url": "/" }],
+  "paths": {
+    "/health": { "get": { "summary": "Health check", "responses": { "200": { "description": "OK" } } } },
+    "/v1/prices": {
+      "get": {
+        "summary": "List prices",
+        "security": [{ "ApiKeyAuth": [] }],
+        "parameters": [
+          { "name": "company", "in": "query", "schema": {"type":"string"} },
+          { "name": "skuId", "in": "query", "schema": {"type":"string"} },
+          { "name": "from", "in": "query", "schema": {"type":"string", "example":"2025-01"} },
+          { "name": "to", "in": "query", "schema": {"type":"string", "example":"2025-12"} }
+        ],
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/v1/forecast": {
+      "get": { "summary": "List forecast", "security": [{ "ApiKeyAuth": [] }], "responses": { "200": { "description": "OK" } } }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "ApiKeyAuth": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "x-api-key"
+      }
+    }
+  }
+}
+
+

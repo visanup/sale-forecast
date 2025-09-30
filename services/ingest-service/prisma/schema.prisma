@@ -1,0 +1,112 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Reference same tables as data-service; plus staging
+model dim_company {
+  company_id   BigInt  @id @default(autoincrement()) @db.BigInt
+  company_code String  @unique
+  company_desc String?
+  @@map("dim_company")
+}
+
+model dim_dept {
+  dept_id   BigInt @id @default(autoincrement()) @db.BigInt
+  dept_code String @unique
+  @@map("dim_dept")
+}
+
+model dim_distribution_channel {
+  dc_id   BigInt @id @default(autoincrement()) @db.BigInt
+  dc_code String @unique
+  dc_desc String?
+  @@map("dim_distribution_channel")
+}
+
+model dim_uom {
+  uom_id   BigInt @id @default(autoincrement()) @db.BigInt
+  uom_code String @unique
+  @@map("dim_uom")
+}
+
+model dim_material {
+  material_id   BigInt @id @default(autoincrement()) @db.BigInt
+  material_code String @unique
+  material_desc String?
+  @@map("dim_material")
+}
+
+model dim_sku {
+  sku_id     BigInt @id @default(autoincrement()) @db.BigInt
+  material_id BigInt
+  pack_size  String
+  uom_id     BigInt
+  @@unique([material_id, pack_size, uom_id])
+  @@map("dim_sku")
+}
+
+model dim_sales_org {
+  sales_org_id         BigInt @id @default(autoincrement()) @db.BigInt
+  division             String?
+  sales_organization   String?
+  sales_office         String?
+  sales_group          String?
+  sales_representative String?
+  @@unique([division, sales_organization, sales_office, sales_group, sales_representative])
+  @@map("dim_sales_org")
+}
+
+model dim_month {
+  month_id DateTime @id @db.Date
+  yyyy_mm  String   @unique
+  @@map("dim_month")
+}
+
+model forecast_run {
+  run_id       BigInt   @id @default(autoincrement()) @db.BigInt
+  anchor_month DateTime @db.Date
+  created_at   DateTime @default(now())
+  method       String?
+  notes        String?
+  @@map("forecast_run")
+}
+
+model fact_price {
+  company_id BigInt
+  sku_id     BigInt
+  month_id   DateTime @db.Date
+  price      Decimal  @db.Decimal(18, 4)
+  @@id([company_id, sku_id, month_id])
+  @@map("fact_price")
+}
+
+model fact_forecast {
+  run_id       BigInt
+  company_id   BigInt
+  dept_id      BigInt
+  sku_id       BigInt
+  sales_org_id BigInt
+  dc_id        BigInt
+  month_id     DateTime @db.Date
+  forecast_qty        Decimal  @db.Decimal(18, 4)
+  unit_price_snapshot Decimal? @db.Decimal(18, 4)
+  revenue_snapshot    Decimal? @db.Decimal(18, 4)
+  @@id([run_id, company_id, dept_id, sku_id, sales_org_id, dc_id, month_id])
+  @@map("fact_forecast")
+}
+
+model staging_forecast_uploads {
+  id          BigInt   @id @default(autoincrement()) @db.BigInt
+  batch_id    String   @db.Uuid
+  raw_json    Json
+  imported_at DateTime @default(now())
+  errors      Json?
+  @@map("staging_forecast_uploads")
+}
+
+

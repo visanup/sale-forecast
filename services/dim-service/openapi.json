@@ -1,0 +1,16 @@
+{
+  "openapi": "3.0.3",
+  "info": { "title": "Dimension Service API", "version": "v1" },
+  "paths": {
+    "/health": { "get": { "summary": "Health check", "responses": { "200": { "description": "OK" } } } },
+    "/v1/dim/companies": { "get": { "summary": "List companies", "security": [{ "ApiKeyAuth": [] }], "responses": { "200": { "description": "OK" } } } },
+    "/v1/dim/depts": { "get": { "summary": "List depts", "security": [{ "ApiKeyAuth": [] }], "responses": { "200": { "description": "OK" } } } },
+    "/v1/dim/distribution-channels": { "get": { "summary": "List distribution channels", "security": [{ "ApiKeyAuth": [] }], "responses": { "200": { "description": "OK" } } } },
+    "/v1/dim/materials": { "get": { "summary": "List materials", "security": [{ "ApiKeyAuth": [] }], "responses": { "200": { "description": "OK" } } } }
+  },
+  "components": {
+    "securitySchemes": { "ApiKeyAuth": { "type": "apiKey", "in": "header", "name": "x-api-key" } }
+  }
+}
+
+

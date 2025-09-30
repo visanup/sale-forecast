@@ -1,0 +1,16 @@
+{
+  "openapi": "3.0.3",
+  "info": { "title": "Ingest Service API", "version": "v1" },
+  "paths": {
+    "/health": { "get": { "summary": "Health check", "responses": { "200": { "description": "OK" } } } },
+    "/v1/upload": { "post": { "summary": "Upload Excel", "security": [{ "ApiKeyAuth": [] }], "responses": { "202": { "description": "Accepted" } } } },
+    "/v1/manual": { "post": { "summary": "Manual ingest", "security": [{ "ApiKeyAuth": [] }], "responses": { "201": { "description": "Created" } } } }
+  },
+  "components": {
+    "securitySchemes": {
+      "ApiKeyAuth": { "type": "apiKey", "in": "header", "name": "x-api-key" }
+    }
+  }
+}
+
+
