@@ -1,0 +1,130 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: data-service
+  namespace: demand-forecasting
+  labels:
+    app: data-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: data-service
+  template:
+    metadata:
+      labels:
+        app: data-service
+    spec:
+      containers:
+      - name: data-service
+        image: your-registry/demand-forecasting-data-service:latest
+        ports:
+        - containerPort: 6603
+        env:
+        - name: PORT
+          value: "6603"
+        - name: DATABASE_URL
+          value: "postgres://postgres:$(POSTGRES_PASSWORD)@postgres-service:5432/postgres"
+        - name: REDIS_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: demand-forecasting-config
+              key: REDIS_HOST
+        - name: REDIS_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: demand-forecasting-config
+              key: REDIS_PORT
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: demand-forecasting-secrets
+              key: REDIS_PASSWORD
+        - name: INTERNAL_SHARED_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: demand-forecasting-secrets
+              key: INTERNAL_SHARED_SECRET
+        - name: AUTH_VALIDATE_URL
+          valueFrom:
+            configMapKeyRef:
+              name: demand-forecasting-config
+              key: AUTH_VALIDATE_URL
+        - name: CORS_ORIGINS
+          valueFrom:
+            configMapKeyRef:
+              name: demand-forecasting-config
+              key: CORS_ORIGINS
+        - name: LOG_LEVEL
+          valueFrom:
+            configMapKeyRef:
+              name: demand-forecasting-config
+              key: LOG_LEVEL
+        - name: NODE_ENV
+          valueFrom:
+            configMapKeyRef:
+              name: demand-forecasting-config
+              key: NODE_ENV
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: demand-forecasting-secrets
+              key: POSTGRES_PASSWORD
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 6603
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 6603
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: data-service
+  namespace: demand-forecasting
+spec:
+  selector:
+    app: data-service
+  ports:
+  - port: 6603
+    targetPort: 6603
+  type: ClusterIP
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: data-service-hpa
+  namespace: demand-forecasting
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: data-service
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80

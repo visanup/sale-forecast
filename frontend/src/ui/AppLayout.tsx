@@ -14,7 +14,8 @@ import {
   LogOut,
   Home,
   Shield,
-  Zap
+  Zap,
+  Terminal
 } from 'lucide-react';
 
 export function AppLayout() {
@@ -28,7 +29,7 @@ export function AppLayout() {
               <BarChart3 className="w-5 h-5 text-white" />
             </div>
             <span className="text-gray-900 dark:text-white">
-              Sale <span className="bg-gradient-to-r from-brand-600 to-blue-600 bg-clip-text text-transparent">Forecasting</span>
+              Demand <span className="bg-gradient-to-r from-brand-600 to-blue-600 bg-clip-text text-transparent">Forecasting</span>
             </span>
           </Link>
           
@@ -72,6 +73,10 @@ export function AppLayout() {
                   <NavLink to="/api-keys" className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
                     <Key size={16} className="text-purple-600" />
                     <span>API Keys</span>
+                  </NavLink>
+                  <NavLink to="/logs" className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+                    <Terminal size={16} className="text-orange-600" />
+                    <span>System Logs</span>
                   </NavLink>
                   <NavLink to="/admin/import" className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
                     <Database size={16} className="text-green-600" />
@@ -125,6 +130,14 @@ export function AppLayout() {
                 API Keys
               </NavLink>
               <NavLink 
+                to="/logs" 
+                onClick={()=>setOpen(false)}
+                className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+              >
+                <Terminal size={16} />
+                System Logs
+              </NavLink>
+              <NavLink 
                 to="/admin/import" 
                 onClick={()=>setOpen(false)}
                 className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
@@ -175,7 +188,7 @@ export function AppLayout() {
               </div>
               <div>
                 <p className="font-semibold text-gray-900 dark:text-white">
-                  Sale <span className="text-brand-600">Forecasting</span>
+                  Demand <span className="text-brand-600">Forecasting</span>
                 </p>
                 <p className="text-xs text-gray-500 dark:text-gray-400">v0.1.0</p>
               </div>
@@ -197,7 +210,7 @@ export function AppLayout() {
             </div>
             
             <p className="text-sm text-gray-500 dark:text-gray-400">
-              © {new Date().getFullYear()} Sale Forecasting. All rights reserved.
+              © {new Date().getFullYear()} Demand Forecasting. All rights reserved.
             </p>
           </div>
         </div>

@@ -41,7 +41,7 @@ export class ApiKeyService {
     const client = await this.prisma.api_clients.create({
       data: {
         name: data.name,
-        contact_email: data.contactEmail
+        ...(data.contactEmail && { contact_email: data.contactEmail })
       }
     });
 
@@ -55,7 +55,7 @@ export class ApiKeyService {
     return {
       clientId: client.client_id.toString(),
       name: client.name,
-      contactEmail: client.contact_email || undefined,
+      ...(client.contact_email && { contactEmail: client.contact_email }),
       isActive: client.is_active,
       createdAt: client.created_at,
       keyCount: 0
@@ -155,7 +155,7 @@ export class ApiKeyService {
     return clients.map(client => ({
       clientId: client.client_id.toString(),
       name: client.name,
-      contactEmail: client.contact_email || undefined,
+      ...(client.contact_email && { contactEmail: client.contact_email }),
       isActive: client.is_active,
       createdAt: client.created_at,
       keyCount: client._count.keys
@@ -188,7 +188,7 @@ export class ApiKeyService {
     return {
       clientId: client.client_id.toString(),
       name: client.name,
-      contactEmail: client.contact_email || undefined,
+      ...(client.contact_email && { contactEmail: client.contact_email }),
       isActive: client.is_active,
       createdAt: client.created_at,
       keyCount: client._count.keys

@@ -53,10 +53,15 @@ export function ApiKeysPage() {
   const fetchClients = async () => {
     try {
       setLoading(true);
+      setError(null);
       const response = await api.get('api/v1/api-keys/clients');
-      setClients(response.data.data);
+      console.log('API Response:', response);
+      console.log('Clients data:', response.data);
+      setClients(response.data || []);
     } catch (err: any) {
-      setError(err.response?.data?.error?.message || 'Failed to fetch API clients');
+      console.error('Error fetching clients:', err);
+      setError(err.response?.data?.error?.message || err.message || 'Failed to fetch API clients');
+      setClients([]); // Set empty array on error
     } finally {
       setLoading(false);
     }
@@ -80,11 +85,14 @@ export function ApiKeysPage() {
       const response = await api.post(`api/v1/api-keys/clients/${clientId}/keys`, {
         scope: newKeyScope
       });
-      setCreatedKey(response.data.data);
+      console.log('Create Key Response:', response);
+      console.log('Created Key Data:', response.data);
+      setCreatedKey(response.data);
       setShowCreateKey(null);
       setNewKeyScope('read:forecast');
       fetchClients();
     } catch (err: any) {
+      console.error('Error creating API key:', err);
       setError(err.response?.data?.error?.message || 'Failed to create API key');
     }
   };
@@ -125,236 +133,303 @@ export function ApiKeysPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 dark:from-slate-900 dark:via-blue-900 dark:to-indigo-900 py-8 relative overflow-hidden">
+      {/* Background Pattern */}
+      <div className="absolute inset-0 opacity-20">
+        <div className="absolute inset-0 bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 dark:from-gray-900 dark:via-indigo-900 dark:to-blue-900"></div>
+        <div 
+          className="absolute inset-0 opacity-40"
+          style={{
+            backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%236366F1' fill-opacity='0.1'%3E%3Ccircle cx='30' cy='30' r='2'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`
+          }}
+        ></div>
+        <div className="absolute top-0 left-0 w-full h-full">
+          <div className="absolute top-20 left-20 w-72 h-72 bg-blue-300 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-pulse"></div>
+          <div className="absolute top-40 right-20 w-72 h-72 bg-indigo-300 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-pulse" style={{animationDelay: '2s'}}></div>
+          <div className="absolute -bottom-8 left-40 w-72 h-72 bg-purple-300 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-pulse" style={{animationDelay: '4s'}}></div>
+        </div>
+      </div>
+
       {/* Header Section */}
-      <div className="relative overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-r from-brand-600/5 to-blue-600/5 dark:from-brand-600/10 dark:to-blue-600/10"></div>
-        <div className="relative w-full px-4 sm:px-6 lg:px-8 py-12">
-          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
-            <div>
-              <div className="flex items-center gap-3 mb-4">
-                <div className="inline-flex items-center justify-center w-12 h-12 bg-gradient-to-r from-brand-600 to-blue-600 rounded-xl shadow-lg">
-                  <KeyRound className="w-6 h-6 text-white" />
-                </div>
-                <h1 className="text-3xl md:text-4xl font-bold text-gray-900 dark:text-white">
-                  API Keys Management
-                </h1>
-              </div>
-              <p className="text-lg text-gray-600 dark:text-gray-300 max-w-2xl">
-                Create and manage API clients and keys to access our forecasting services. Secure, scalable, and enterprise-ready.
-              </p>
+      <div className="relative w-full px-4 sm:px-6 lg:px-8 py-12">
+        <div className="text-center mb-12">
+          <h1 className="text-4xl md:text-5xl font-bold text-gray-900 dark:text-white mb-4 flex items-center justify-center gap-4">
+            <div className="w-16 h-16 bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500 rounded-2xl flex items-center justify-center shadow-2xl">
+              <KeyRound className="w-8 h-8 text-white" />
             </div>
-            
+            <span className="bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 bg-clip-text text-transparent">API Keys Management</span>
+          </h1>
+          <p className="text-lg text-gray-600 dark:text-gray-400 max-w-2xl mx-auto">Create and manage API clients and keys to access our forecasting services. Secure, scalable, and enterprise-ready.</p>
+        </div>
+      </div>
+
+      {/* Main Content */}
+      <div className="relative w-full px-4 sm:px-6 lg:px-8 pb-16">
+        <div className="max-w-7xl mx-auto">
+          {/* Create Client Button */}
+          <div className="flex justify-center mb-8">
             <button
               onClick={() => setShowCreateClient(true)}
-              className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-brand-600 to-blue-600 text-white font-medium rounded-xl hover:from-brand-700 hover:to-blue-700 transition-all duration-200 shadow-lg hover:shadow-xl"
+              className="inline-flex items-center gap-3 px-8 py-4 bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500 hover:from-blue-600 hover:via-indigo-600 hover:to-purple-600 text-white font-semibold rounded-2xl transition-all duration-300 transform hover:scale-105 shadow-2xl hover:shadow-3xl"
             >
               <Plus className="w-5 h-5" />
               Create API Client
             </button>
           </div>
-        </div>
-      </div>
 
-      {/* Main Content */}
-      <div className="w-full px-4 sm:px-6 lg:px-8 pb-16">
-
-        {error && (
-          <div className="mb-8">
-            <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-2xl p-6">
-              <div className="flex items-start gap-4">
-                <div className="flex-shrink-0">
-                  <div className="inline-flex items-center justify-center w-10 h-10 bg-red-100 dark:bg-red-900/30 rounded-xl">
-                    <AlertTriangle className="w-5 h-5 text-red-600 dark:text-red-400" />
+          {error && (
+            <div className="mb-8">
+              <div className="bg-white/90 dark:bg-gray-800/90 backdrop-blur-2xl rounded-3xl shadow-2xl border border-red-200/50 dark:border-red-800/50 p-8 animate-fade-in-up">
+                <div className="flex items-start gap-4">
+                  <div className="flex-shrink-0">
+                    <div className="inline-flex items-center justify-center w-12 h-12 bg-gradient-to-r from-red-500 to-pink-500 rounded-2xl shadow-lg">
+                      <AlertTriangle className="w-6 h-6 text-white" />
+                    </div>
                   </div>
-                </div>
-                <div className="flex-1">
-                  <h3 className="text-lg font-semibold text-red-800 dark:text-red-200 mb-2">
-                    Error
-                  </h3>
-                  <p className="text-red-700 dark:text-red-300">{error}</p>
+                  <div className="flex-1">
+                    <h3 className="text-xl font-bold text-red-800 dark:text-red-200 mb-2">
+                      Error
+                    </h3>
+                    <p className="text-red-700 dark:text-red-300 text-lg">{error}</p>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {createdKey && (
-          <div className="mb-8">
-            <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-2xl p-6">
-              <div className="flex items-start gap-4">
-                <div className="flex-shrink-0">
-                  <div className="inline-flex items-center justify-center w-12 h-12 bg-green-100 dark:bg-green-900/30 rounded-xl">
-                    <CheckCircle className="w-6 h-6 text-green-600 dark:text-green-400" />
+          {createdKey && (
+            <div className="mb-8">
+              <div className="bg-white/90 dark:bg-gray-800/90 backdrop-blur-2xl rounded-3xl shadow-2xl border border-green-200/50 dark:border-green-800/50 p-8 animate-fade-in-up">
+                <div className="flex items-start gap-6">
+                  <div className="flex-shrink-0">
+                    <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-r from-green-500 to-emerald-500 rounded-2xl shadow-2xl">
+                      <CheckCircle className="w-8 h-8 text-white" />
+                    </div>
                   </div>
+                  <div className="flex-1">
+                    <h3 className="text-2xl font-bold text-green-800 dark:text-green-200 mb-4 flex items-center gap-2">
+                      🎉 API Key Created Successfully!
+                    </h3>
+                    <div className="space-y-4">
+                      <div className="bg-gradient-to-r from-gray-50 to-gray-100 dark:from-gray-700 dark:to-gray-600 rounded-2xl p-6 border border-green-200 dark:border-green-700">
+                        <p className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3 flex items-center gap-2">
+                          <Key className="w-4 h-4" />
+                          Your API Key:
+                        </p>
+                        <div className="flex items-center gap-3">
+                          <code className="flex-1 font-mono text-sm bg-white dark:bg-gray-800 p-4 rounded-xl break-all text-gray-800 dark:text-gray-200 border border-gray-200 dark:border-gray-600">
+                            {createdKey.apiKey}
+                          </code>
+                          <button
+                            onClick={() => navigator.clipboard.writeText(createdKey.apiKey)}
+                            className="p-3 text-gray-600 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200 transition-all duration-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-xl"
+                          >
+                            <Copy className="w-5 h-5" />
+                          </button>
+                        </div>
+                      </div>
+                      <div className="bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-900/20 dark:to-orange-900/20 border border-amber-200 dark:border-amber-800 rounded-2xl p-4">
+                        <p className="text-sm text-amber-800 dark:text-amber-200 flex items-start gap-3">
+                          <AlertTriangle className="w-5 h-5 mt-0.5 flex-shrink-0" />
+                          <span className="font-medium">⚠️ Copy this key now - it won't be shown again for security reasons!</span>
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setCreatedKey(null)}
+                    className="p-3 text-green-600 hover:text-green-800 dark:text-green-400 dark:hover:text-green-200 transition-all duration-300 hover:bg-green-100 dark:hover:bg-green-900/20 rounded-xl"
+                  >
+                    <XCircle className="w-6 h-6" />
+                  </button>
                 </div>
-                <div className="flex-1">
-                  <h3 className="text-lg font-semibold text-green-800 dark:text-green-200 mb-3">
-                    🎉 API Key Created Successfully!
-                  </h3>
-                  <div className="space-y-3">
-                    <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-green-200 dark:border-green-700">
-                      <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Your API Key:</p>
-                      <div className="flex items-center gap-2">
-                        <code className="flex-1 font-mono text-sm bg-gray-100 dark:bg-gray-700 p-3 rounded-lg break-all text-gray-800 dark:text-gray-200">
-                          {createdKey.apiKey}
-                        </code>
+              </div>
+            </div>
+          )}
+
+          {showCreateClient && (
+            <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+              <div className="bg-white/90 dark:bg-gray-800/90 backdrop-blur-2xl rounded-3xl shadow-2xl border border-white/30 dark:border-gray-700/30 p-8 max-w-md w-full animate-fade-in-up">
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="w-10 h-10 bg-gradient-to-r from-blue-500 to-indigo-500 rounded-xl flex items-center justify-center">
+                    <Plus className="w-5 h-5 text-white" />
+                  </div>
+                  <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Create API Client</h2>
+                </div>
+                <form onSubmit={createClient} className="space-y-6">
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Client Name</label>
+                    <input
+                      type="text"
+                      value={newClient.name}
+                      onChange={(e) => setNewClient({ ...newClient, name: e.target.value })}
+                      className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-300"
+                      placeholder="Enter client name"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Contact Email (Optional)</label>
+                    <input
+                      type="email"
+                      value={newClient.contactEmail}
+                      onChange={(e) => setNewClient({ ...newClient, contactEmail: e.target.value })}
+                      className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-300"
+                      placeholder="Enter contact email"
+                    />
+                  </div>
+                  <div className="flex gap-3 pt-4">
+                    <button
+                      type="submit"
+                      className="flex-1 bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600 text-white font-semibold py-3 px-6 rounded-xl transition-all duration-300 transform hover:scale-105 shadow-lg"
+                    >
+                      Create Client
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowCreateClient(false)}
+                      className="flex-1 bg-gray-200 dark:bg-gray-600 hover:bg-gray-300 dark:hover:bg-gray-500 text-gray-700 dark:text-gray-300 font-semibold py-3 px-6 rounded-xl transition-all duration-300"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {showCreateKey && (
+            <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+              <div className="bg-white/90 dark:bg-gray-800/90 backdrop-blur-2xl rounded-3xl shadow-2xl border border-white/30 dark:border-gray-700/30 p-8 max-w-md w-full animate-fade-in-up">
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="w-10 h-10 bg-gradient-to-r from-purple-500 to-pink-500 rounded-xl flex items-center justify-center">
+                    <Key className="w-5 h-5 text-white" />
+                  </div>
+                  <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Create API Key</h2>
+                </div>
+                <form onSubmit={(e) => createKey(showCreateKey, e)} className="space-y-6">
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Scope</label>
+                    <select
+                      value={newKeyScope}
+                      onChange={(e) => setNewKeyScope(e.target.value)}
+                      className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all duration-300"
+                    >
+                      <option value="read:forecast">Read Forecast</option>
+                      <option value="read:data">Read Data</option>
+                      <option value="write:upload">Write Upload</option>
+                      <option value="admin">Admin</option>
+                    </select>
+                  </div>
+                  <div className="flex gap-3 pt-4">
+                    <button
+                      type="submit"
+                      className="flex-1 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white font-semibold py-3 px-6 rounded-xl transition-all duration-300 transform hover:scale-105 shadow-lg"
+                    >
+                      Create Key
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowCreateKey(null)}
+                      className="flex-1 bg-gray-200 dark:bg-gray-600 hover:bg-gray-300 dark:hover:bg-gray-500 text-gray-700 dark:text-gray-300 font-semibold py-3 px-6 rounded-xl transition-all duration-300"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+          <div className="space-y-6">
+            {!clients || clients.length === 0 ? (
+              <div className="text-center py-16">
+                <div className="bg-white/90 dark:bg-gray-800/90 backdrop-blur-2xl rounded-3xl shadow-2xl border border-white/30 dark:border-gray-700/30 p-12 max-w-md mx-auto">
+                  <div className="w-20 h-20 bg-gradient-to-r from-gray-400 to-gray-500 rounded-2xl flex items-center justify-center mx-auto mb-6">
+                    <KeyRound className="w-10 h-10 text-white" />
+                  </div>
+                  <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-3">No API Clients Found</h3>
+                  <p className="text-gray-600 dark:text-gray-400 mb-6">Create your first API client to get started with our forecasting services.</p>
+                  <button
+                    onClick={() => setShowCreateClient(true)}
+                    className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600 text-white font-semibold rounded-xl transition-all duration-300 transform hover:scale-105 shadow-lg"
+                  >
+                    <Plus className="w-5 h-5" />
+                    Create First Client
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="grid gap-6">
+                {(clients || []).map((client, index) => (
+                  <div key={client.clientId} className="bg-white/90 dark:bg-gray-800/90 backdrop-blur-2xl rounded-3xl shadow-2xl border border-white/30 dark:border-gray-700/30 p-8 animate-fade-in-up hover:shadow-3xl transition-all duration-300" style={{animationDelay: `${index * 0.1}s`}}>
+                    <div className="flex justify-between items-start mb-6">
+                      <div className="flex items-start gap-4">
+                        <div className="w-12 h-12 bg-gradient-to-r from-blue-500 to-indigo-500 rounded-2xl flex items-center justify-center shadow-lg">
+                          <Database className="w-6 h-6 text-white" />
+                        </div>
+                        <div>
+                          <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">{client.name}</h3>
+                          {client.contactEmail && (
+                            <p className="text-sm text-gray-600 dark:text-gray-400 mb-2 flex items-center gap-2">
+                              <Shield className="w-4 h-4" />
+                              {client.contactEmail}
+                            </p>
+                          )}
+                          <p className="text-sm text-gray-500 dark:text-gray-500 flex items-center gap-2">
+                            <Clock className="w-4 h-4" />
+                            Created: {new Date(client.createdAt).toLocaleDateString()}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className={`px-3 py-1 rounded-full text-sm font-semibold ${
+                          client.isActive 
+                            ? 'bg-gradient-to-r from-green-100 to-emerald-100 text-green-800 dark:from-green-900/30 dark:to-emerald-900/30 dark:text-green-300' 
+                            : 'bg-gradient-to-r from-red-100 to-pink-100 text-red-800 dark:from-red-900/30 dark:to-pink-900/30 dark:text-red-300'
+                        }`}>
+                          {client.isActive ? 'Active' : 'Inactive'}
+                        </span>
+                      </div>
+                    </div>
+                    
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-6">
+                        <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+                          <Key className="w-4 h-4" />
+                          <span className="font-semibold">Active Keys: {client.keyCount}</span>
+                        </div>
+                        <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+                          <Zap className="w-4 h-4" />
+                          <span>Client ID: {client.clientId}</span>
+                        </div>
+                      </div>
+                      
+                      <div className="flex gap-3">
                         <button
-                          onClick={() => navigator.clipboard.writeText(createdKey.apiKey)}
-                          className="p-2 text-gray-600 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200 transition-colors"
+                          onClick={() => setShowCreateKey(client.clientId)}
+                          className="px-4 py-2 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white text-sm font-semibold rounded-xl transition-all duration-300 transform hover:scale-105 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
+                          disabled={!client.isActive}
                         >
-                          <Copy className="w-4 h-4" />
+                          <Key className="w-4 h-4 inline mr-2" />
+                          Create Key
+                        </button>
+                        <button
+                          onClick={() => deactivateClient(client.clientId)}
+                          className="px-4 py-2 bg-gradient-to-r from-red-500 to-pink-500 hover:from-red-600 hover:to-pink-600 text-white text-sm font-semibold rounded-xl transition-all duration-300 transform hover:scale-105 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
+                          disabled={!client.isActive}
+                        >
+                          <Trash2 className="w-4 h-4 inline mr-2" />
+                          Deactivate
                         </button>
                       </div>
                     </div>
-                    <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl p-4">
-                      <p className="text-sm text-amber-800 dark:text-amber-200 flex items-start gap-2">
-                        <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
-                        <span>⚠️ Copy this key now - it won't be shown again for security reasons!</span>
-                      </p>
-                    </div>
                   </div>
-                </div>
-                <button
-                  onClick={() => setCreatedKey(null)}
-                  className="p-2 text-green-600 hover:text-green-800 dark:text-green-400 dark:hover:text-green-200 transition-colors"
-                >
-                  <XCircle className="w-5 h-5" />
-                </button>
+                ))}
               </div>
-            </div>
-          </div>
-        )}
-
-      {showCreateClient && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-96">
-            <h2 className="text-lg font-semibold mb-4">Create API Client</h2>
-            <form onSubmit={createClient} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Client Name</label>
-                <input
-                  type="text"
-                  value={newClient.name}
-                  onChange={(e) => setNewClient({ ...newClient, name: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-brand-500"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Contact Email (Optional)</label>
-                <input
-                  type="email"
-                  value={newClient.contactEmail}
-                  onChange={(e) => setNewClient({ ...newClient, contactEmail: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-brand-500"
-                />
-              </div>
-              <div className="flex gap-2 pt-4">
-                <button
-                  type="submit"
-                  className="flex-1 px-4 py-2 bg-brand-600 text-white rounded-md hover:bg-brand-700"
-                >
-                  Create
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowCreateClient(false)}
-                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50"
-                >
-                  Cancel
-                </button>
-              </div>
-            </form>
+            )}
           </div>
         </div>
-      )}
-
-      {showCreateKey && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-96">
-            <h2 className="text-lg font-semibold mb-4">Create API Key</h2>
-            <form onSubmit={(e) => createKey(showCreateKey, e)} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Scope</label>
-                <select
-                  value={newKeyScope}
-                  onChange={(e) => setNewKeyScope(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-brand-500"
-                >
-                  <option value="read:forecast">Read Forecast</option>
-                  <option value="read:data">Read Data</option>
-                  <option value="write:upload">Write Upload</option>
-                  <option value="admin">Admin</option>
-                </select>
-              </div>
-              <div className="flex gap-2 pt-4">
-                <button
-                  type="submit"
-                  className="flex-1 px-4 py-2 bg-brand-600 text-white rounded-md hover:bg-brand-700"
-                >
-                  Create
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowCreateKey(null)}
-                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50"
-                >
-                  Cancel
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      <div className="space-y-4">
-        {clients.length === 0 ? (
-          <div className="text-center py-8">
-            <p className="text-gray-500">No API clients found. Create your first client to get started.</p>
-          </div>
-        ) : (
-          clients.map(client => (
-            <div key={client.clientId} className="card p-4">
-              <div className="flex justify-between items-start mb-4">
-                <div>
-                  <h3 className="text-lg font-semibold">{client.name}</h3>
-                  {client.contactEmail && (
-                    <p className="text-sm text-gray-600">{client.contactEmail}</p>
-                  )}
-                  <p className="text-xs text-gray-500">
-                    Created: {new Date(client.createdAt).toLocaleDateString()}
-                  </p>
-                </div>
-                <div className="flex gap-2">
-                  <span className={`px-2 py-1 rounded text-xs ${
-                    client.isActive ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-                  }`}>
-                    {client.isActive ? 'Active' : 'Inactive'}
-                  </span>
-                  <button
-                    onClick={() => setShowCreateKey(client.clientId)}
-                    className="px-3 py-1 bg-brand-600 text-white text-sm rounded hover:bg-brand-700"
-                    disabled={!client.isActive}
-                  >
-                    Create Key
-                  </button>
-                  <button
-                    onClick={() => deactivateClient(client.clientId)}
-                    className="px-3 py-1 bg-red-600 text-white text-sm rounded hover:bg-red-700"
-                    disabled={!client.isActive}
-                  >
-                    Deactivate
-                  </button>
-                </div>
-              </div>
-              
-              <div className="text-sm text-gray-600">
-                <p>Active Keys: {client.keyCount}</p>
-              </div>
-            </div>
-          ))
-        )}
       </div>
     </div>
   );

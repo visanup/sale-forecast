@@ -1,0 +1,135 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-service
+  namespace: demand-forecasting
+  labels:
+    app: auth-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: auth-service
+  template:
+    metadata:
+      labels:
+        app: auth-service
+    spec:
+      containers:
+      - name: auth-service
+        image: your-registry/demand-forecasting-auth-service:latest
+        ports:
+        - containerPort: 6601
+        env:
+        - name: PORT
+          value: "6601"
+        - name: DATABASE_URL
+          value: "postgres://postgres:$(POSTGRES_PASSWORD)@postgres-service:5432/postgres"
+        - name: REDIS_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: demand-forecasting-config
+              key: REDIS_HOST
+        - name: REDIS_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: demand-forecasting-config
+              key: REDIS_PORT
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: demand-forecasting-secrets
+              key: REDIS_PASSWORD
+        - name: INTERNAL_SHARED_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: demand-forecasting-secrets
+              key: INTERNAL_SHARED_SECRET
+        - name: JWT_ACCESS_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: demand-forecasting-secrets
+              key: JWT_ACCESS_SECRET
+        - name: JWT_REFRESH_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: demand-forecasting-secrets
+              key: JWT_REFRESH_SECRET
+        - name: CORS_ORIGINS
+          valueFrom:
+            configMapKeyRef:
+              name: demand-forecasting-config
+              key: CORS_ORIGINS
+        - name: LOG_LEVEL
+          valueFrom:
+            configMapKeyRef:
+              name: demand-forecasting-config
+              key: LOG_LEVEL
+        - name: NODE_ENV
+          valueFrom:
+            configMapKeyRef:
+              name: demand-forecasting-config
+              key: NODE_ENV
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: demand-forecasting-secrets
+              key: POSTGRES_PASSWORD
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 6601
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 6601
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: auth-service
+  namespace: demand-forecasting
+spec:
+  selector:
+    app: auth-service
+  ports:
+  - port: 6601
+    targetPort: 6601
+  type: ClusterIP
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: auth-service-hpa
+  namespace: demand-forecasting
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: auth-service
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80

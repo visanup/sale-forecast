@@ -13,6 +13,10 @@ import { apiKeyRoutes } from './routes/apiKey.routes';
 import { errorHandler } from './middleware/error.middleware';
 import { requestLogger } from './middleware/logging.middleware';
 import { config } from './config/config';
+import { createRedisLogger } from './utils/redis-logger';
+
+// Initialize Redis logger
+export const logger = createRedisLogger('auth-service', config.logLevel);
 
 const app = express();
 

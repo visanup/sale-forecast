@@ -4,7 +4,7 @@ import { ApiKeyService } from '../services/apiKey.service';
 import { AuditService } from '../services/audit.service';
 import { requireAuth } from '../middleware/auth.middleware';
 import { validateRequest } from '../middleware/validation.middleware';
-import { body, param, query } from 'express-validator';
+import { body, param } from 'express-validator';
 import { Request, Response } from 'express';
 
 const router = Router();
@@ -34,14 +34,14 @@ router.post('/clients',
         contactEmail
       });
 
-      res.status(201).json({
+      return res.status(201).json({
         success: true,
         data: client,
         message: 'API client created successfully'
       });
     } catch (error) {
       console.error('Error creating API client:', error);
-      res.status(500).json({
+      return res.status(500).json({
         success: false,
         error: {
           code: 'INTERNAL_ERROR',
@@ -56,17 +56,17 @@ router.post('/clients',
  * List all API clients
  * GET /api/v1/api-keys/clients
  */
-router.get('/clients', async (req: Request, res: Response) => {
+router.get('/clients', async (_req: Request, res: Response) => {
   try {
     const clients = await apiKeyService.listApiClients();
     
-    res.json({
+    return res.json({
       success: true,
       data: clients
     });
   } catch (error) {
     console.error('Error listing API clients:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: {
         code: 'INTERNAL_ERROR',
@@ -87,7 +87,7 @@ router.get('/clients/:clientId',
   validateRequest,
   async (req: Request, res: Response) => {
     try {
-      const clientId = BigInt(req.params.clientId);
+      const clientId = BigInt(req.params['clientId']!);
       const client = await apiKeyService.getApiClient(clientId);
       
       if (!client) {
@@ -100,13 +100,13 @@ router.get('/clients/:clientId',
         });
       }
       
-      res.json({
+      return res.json({
         success: true,
         data: client
       });
     } catch (error) {
       console.error('Error getting API client:', error);
-      res.status(500).json({
+      return res.status(500).json({
         success: false,
         error: {
           code: 'INTERNAL_ERROR',
@@ -129,7 +129,7 @@ router.post('/clients/:clientId/keys',
   validateRequest,
   async (req: Request, res: Response) => {
     try {
-      const clientId = BigInt(req.params.clientId);
+      const clientId = BigInt(req.params['clientId']!);
       const { scope } = req.body;
       
       // Check if client exists
@@ -159,14 +159,14 @@ router.post('/clients/:clientId/keys',
         scope
       });
 
-      res.status(201).json({
+      return res.status(201).json({
         success: true,
         data: apiKey,
         message: 'API key created successfully'
       });
     } catch (error) {
       console.error('Error creating API key:', error);
-      res.status(500).json({
+      return res.status(500).json({
         success: false,
         error: {
           code: 'INTERNAL_ERROR',
@@ -188,11 +188,11 @@ router.delete('/keys/:keyId',
   validateRequest,
   async (req: Request, res: Response) => {
     try {
-      const keyId = BigInt(req.params.keyId);
+      const keyId = BigInt(req.params['keyId']!);
       
       await apiKeyService.revokeApiKey(keyId);
       
-      res.json({
+      return res.json({
         success: true,
         message: 'API key revoked successfully'
       });
@@ -208,7 +208,7 @@ router.delete('/keys/:keyId',
         });
       }
       
-      res.status(500).json({
+      return res.status(500).json({
         success: false,
         error: {
           code: 'INTERNAL_ERROR',
@@ -230,11 +230,11 @@ router.delete('/clients/:clientId',
   validateRequest,
   async (req: Request, res: Response) => {
     try {
-      const clientId = BigInt(req.params.clientId);
+      const clientId = BigInt(req.params['clientId']!);
       
       await apiKeyService.deactivateApiClient(clientId);
       
-      res.json({
+      return res.json({
         success: true,
         message: 'API client deactivated successfully'
       });
@@ -250,7 +250,7 @@ router.delete('/clients/:clientId',
         });
       }
       
-      res.status(500).json({
+      return res.status(500).json({
         success: false,
         error: {
           code: 'INTERNAL_ERROR',

@@ -1,10 +1,10 @@
 export type ApiResponse<T> = { success?: boolean; data?: T; error?: { code: string; message: string } } | { data?: T };
 
-const AUTH_BASE = import.meta.env.VITE_AUTH_URL || 'http://localhost:6601/api/v1/auth';
+const AUTH_BASE = import.meta.env.VITE_AUTH_URL || 'http://localhost:6601';
 const DATA_BASE = import.meta.env.VITE_DATA_URL || 'http://localhost:6603';
 const DIM_BASE = import.meta.env.VITE_DIM_URL || 'http://localhost:6604';
 const INGEST_BASE = import.meta.env.VITE_INGEST_URL || 'http://localhost:6602';
-const DATA_API_KEY = import.meta.env.VITE_DATA_API_KEY || '';
+const DATA_API_KEY = import.meta.env.VITE_DATA_API_KEY || 'changeme';
 
 async function http<T>(url: string, init?: RequestInit): Promise<T> {
   // merge headers and attach Authorization if available
@@ -22,23 +22,25 @@ async function http<T>(url: string, init?: RequestInit): Promise<T> {
 // Helper function to build full URL for auth service
 function buildAuthUrl(path: string): string {
   const baseUrl = import.meta.env.VITE_AUTH_URL || 'http://localhost:6601';
-  // Remove leading slash if present to avoid double slashes
-  const cleanPath = path.startsWith('/') ? path.slice(1) : path;
-  return `${baseUrl}/${cleanPath}`;
+  // Ensure path starts with / and baseUrl doesn't end with /
+  const cleanBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+  const cleanPath = path.startsWith('/') ? path : `/${path}`;
+  const fullUrl = `${cleanBaseUrl}${cleanPath}`;
+  return fullUrl;
 }
 
 export const authApi = {
   async register(input: { email: string; username: string; password: string; firstName?: string; lastName?: string }) {
-    return http<ApiResponse<any>>(`${AUTH_BASE}/register`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) });
+    return http<ApiResponse<any>>(buildAuthUrl('/api/v1/auth/register'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) });
   },
   async login(input: { username: string; password: string }) {
-    return http<ApiResponse<{ accessToken: string; refreshToken: string }>>(`${AUTH_BASE}/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) });
+    return http<ApiResponse<{ accessToken: string; refreshToken: string }>>(buildAuthUrl('/api/v1/auth/login'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) });
   },
   async refresh(refreshToken: string) {
-    return http<ApiResponse<{ accessToken: string }>>(`${AUTH_BASE}/refresh`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ refreshToken }) });
+    return http<ApiResponse<{ accessToken: string }>>(buildAuthUrl('/api/v1/auth/refresh'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ refreshToken }) });
   },
   async logout(refreshToken: string) {
-    return http<ApiResponse<{}>>(`${AUTH_BASE}/logout`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ refreshToken }) });
+    return http<ApiResponse<{}>>(buildAuthUrl('/api/v1/auth/logout'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ refreshToken }) });
   }
 };
 
@@ -76,6 +78,43 @@ export const ingestApi = {
   }
 };
 
+export const logsApi = {
+  async getLogs(params: { service?: string; level?: string; limit?: number; since?: string }) {
+    const sp = new URLSearchParams();
+    if (params.service) sp.append('service', params.service);
+    if (params.level) sp.append('level', params.level);
+    if (params.limit) sp.append('limit', params.limit.toString());
+    if (params.since) sp.append('since', params.since);
+    
+    // Use direct fetch for logs API to avoid Bearer token authentication
+    const res = await fetch(`${DATA_BASE}/v1/logs?${sp.toString()}`, { 
+      headers: { 'X-API-Key': DATA_API_KEY } 
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(json?.error?.message || res.statusText);
+    return json as { data: { logs: any[]; count: number; total: number } };
+  },
+  async getStats() {
+    // Use direct fetch for logs API to avoid Bearer token authentication
+    const res = await fetch(`${DATA_BASE}/v1/logs/stats`, { 
+      headers: { 'X-API-Key': DATA_API_KEY } 
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(json?.error?.message || res.statusText);
+    return json as { data: { totalLogs: number; firstEntry: any; lastEntry: any } };
+  },
+  async clearLogs() {
+    // Use direct fetch for logs API to avoid Bearer token authentication
+    const res = await fetch(`${DATA_BASE}/v1/logs`, { 
+      method: 'DELETE',
+      headers: { 'X-API-Key': DATA_API_KEY } 
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(json?.error?.message || res.statusText);
+    return json as { success: boolean; message: string };
+  }
+};
+
 export function setTokens(tokens: { accessToken: string; refreshToken: string }) {
   localStorage.setItem('accessToken', tokens.accessToken);
   localStorage.setItem('refreshToken', tokens.refreshToken);
@@ -94,12 +133,30 @@ export function getTokens() {
 export const api = {
   get: async (url: string) => {
     // If URL doesn't start with http, assume it's a relative path for auth service
-    const fullUrl = url.startsWith('http') ? url : buildAuthUrl(url);
+    let fullUrl: string;
+    if (url.startsWith('http')) {
+      fullUrl = url;
+    } else {
+      // Direct URL construction to avoid any caching issues
+      const baseUrl = import.meta.env.VITE_AUTH_URL || 'http://localhost:6601';
+      const cleanBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+      const cleanPath = url.startsWith('/') ? url : `/${url}`;
+      fullUrl = `${cleanBaseUrl}${cleanPath}`;
+    }
     return http<any>(fullUrl, { method: 'GET' });
   },
   post: async (url: string, data?: any) => {
     // If URL doesn't start with http, assume it's a relative path for auth service
-    const fullUrl = url.startsWith('http') ? url : buildAuthUrl(url);
+    let fullUrl: string;
+    if (url.startsWith('http')) {
+      fullUrl = url;
+    } else {
+      // Direct URL construction to avoid any caching issues
+      const baseUrl = import.meta.env.VITE_AUTH_URL || 'http://localhost:6601';
+      const cleanBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+      const cleanPath = url.startsWith('/') ? url : `/${url}`;
+      fullUrl = `${cleanBaseUrl}${cleanPath}`;
+    }
     return http<any>(fullUrl, { 
       method: 'POST', 
       headers: { 'Content-Type': 'application/json' }, 
@@ -108,7 +165,16 @@ export const api = {
   },
   put: async (url: string, data?: any) => {
     // If URL doesn't start with http, assume it's a relative path for auth service
-    const fullUrl = url.startsWith('http') ? url : buildAuthUrl(url);
+    let fullUrl: string;
+    if (url.startsWith('http')) {
+      fullUrl = url;
+    } else {
+      // Direct URL construction to avoid any caching issues
+      const baseUrl = import.meta.env.VITE_AUTH_URL || 'http://localhost:6601';
+      const cleanBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+      const cleanPath = url.startsWith('/') ? url : `/${url}`;
+      fullUrl = `${cleanBaseUrl}${cleanPath}`;
+    }
     return http<any>(fullUrl, { 
       method: 'PUT', 
       headers: { 'Content-Type': 'application/json' }, 
@@ -117,7 +183,16 @@ export const api = {
   },
   delete: async (url: string) => {
     // If URL doesn't start with http, assume it's a relative path for auth service
-    const fullUrl = url.startsWith('http') ? url : buildAuthUrl(url);
+    let fullUrl: string;
+    if (url.startsWith('http')) {
+      fullUrl = url;
+    } else {
+      // Direct URL construction to avoid any caching issues
+      const baseUrl = import.meta.env.VITE_AUTH_URL || 'http://localhost:6601';
+      const cleanBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+      const cleanPath = url.startsWith('/') ? url : `/${url}`;
+      fullUrl = `${cleanBaseUrl}${cleanPath}`;
+    }
     return http<any>(fullUrl, { method: 'DELETE' });
   }
 };

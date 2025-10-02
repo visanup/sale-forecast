@@ -1,0 +1,88 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: demand-forecasting
+  labels:
+    app: frontend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+    spec:
+      containers:
+      - name: frontend
+        image: your-registry/demand-forecasting-frontend:latest
+        ports:
+        - containerPort: 6600
+        env:
+        - name: VITE_AUTH_URL
+          value: "https://your-domain.com/api/auth"
+        - name: VITE_DATA_URL
+          value: "https://your-domain.com/api/data"
+        - name: VITE_DIM_URL
+          value: "https://your-domain.com/api/dim"
+        - name: VITE_INGEST_URL
+          value: "https://your-domain.com/api/ingest"
+        - name: VITE_DATA_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: demand-forecasting-secrets
+              key: DATA_API_KEY
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 6600
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 6600
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend-service
+  namespace: demand-forecasting
+spec:
+  selector:
+    app: frontend
+  ports:
+  - port: 6600
+    targetPort: 6600
+  type: ClusterIP
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: frontend-hpa
+  namespace: demand-forecasting
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: frontend
+  minReplicas: 2
+  maxReplicas: 5
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70

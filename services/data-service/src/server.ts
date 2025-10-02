@@ -1,24 +1,22 @@
 import 'dotenv/config';
 import express from 'express';
 import crypto from 'crypto';
-import pino from 'pino';
 import pinoHttp from 'pino-http';
 import cors from 'cors';
 import helmet from 'helmet';
-import pino from 'pino';
 import { config } from './config/config';
 import { apiKeyAuth } from './middleware/apiKeyAuth';
 import { forecastRouter } from './routes/forecast';
 import { pricesRouter } from './routes/prices';
+import { logsRouter } from './routes/logs';
+import { createRedisLogger } from './utils/redis-logger';
 
-const logger = pino({ name: 'data-service' });
+const logger = createRedisLogger('data-service', process.env['LOG_LEVEL'] || 'info');
 const app = express();
-
-const logger = pino({ level: process.env.LOG_LEVEL || 'info' });
 app.use(pinoHttp({ logger, genReqId: (req, res) => (req.headers['x-request-id'] as string) || crypto.randomUUID() }));
 
 // Basic CORS with whitelist from env
-const ALLOW_ORIGINS = (process.env.ALLOW_ORIGINS || '*').split(',').map(s=>s.trim());
+const ALLOW_ORIGINS = (process.env['ALLOW_ORIGINS'] || '*').split(',').map(s=>s.trim());
 app.use((req, res, next) => {
   const origin = req.headers.origin as string | undefined;
   if (!origin || ALLOW_ORIGINS.includes('*') || ALLOW_ORIGINS.includes(origin)) {
@@ -41,8 +39,8 @@ app.use((req, res, next) => {
 });
 
 // Very simple rate limit per IP (memory, best-effort)
-const RATE_LIMIT_WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS || 60000);
-const RATE_LIMIT_MAX = Number(process.env.RATE_LIMIT_MAX || 600);
+const RATE_LIMIT_WINDOW_MS = Number(process.env['RATE_LIMIT_WINDOW_MS'] || 60000);
+const RATE_LIMIT_MAX = Number(process.env['RATE_LIMIT_MAX'] || 600);
 const buckets = new Map<string, { count: number; reset: number }>();
 app.use((req, res, next) => {
   const key = (req.headers['x-api-key'] as string) || req.ip || 'ip';
@@ -63,8 +61,39 @@ app.use(express.json());
 app.get('/health', (_req, res) => res.json({ ok: true }));
 
 app.get('/openapi.json', (_req, res) => {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const spec = require('../openapi.json');
+  const spec = {
+    "openapi": "3.0.3",
+    "info": { "title": "Data Service API", "version": "v1" },
+    "servers": [{ "url": "/" }],
+    "paths": {
+      "/health": { "get": { "summary": "Health check", "responses": { "200": { "description": "OK" } } } },
+      "/v1/prices": {
+        "get": {
+          "summary": "List prices",
+          "security": [{ "ApiKeyAuth": [] }],
+          "parameters": [
+            { "name": "company", "in": "query", "schema": {"type":"string"} },
+            { "name": "skuId", "in": "query", "schema": {"type":"string"} },
+            { "name": "from", "in": "query", "schema": {"type":"string", "example":"2025-01"} },
+            { "name": "to", "in": "query", "schema": {"type":"string", "example":"2025-12"} }
+          ],
+          "responses": { "200": { "description": "OK" } }
+        }
+      },
+      "/v1/forecast": {
+        "get": { "summary": "List forecast", "security": [{ "ApiKeyAuth": [] }], "responses": { "200": { "description": "OK" } } }
+      }
+    },
+    "components": {
+      "securitySchemes": {
+        "ApiKeyAuth": {
+          "type": "apiKey",
+          "in": "header",
+          "name": "x-api-key"
+        }
+      }
+    }
+  };
   res.json(spec);
 });
 
@@ -73,6 +102,7 @@ app.get('/docs', (_req, res) => res.redirect('https://example.com/docs')); // pl
 // Protect data routes with API key validation
 app.use('/v1/forecast', apiKeyAuth, forecastRouter);
 app.use('/v1/prices', apiKeyAuth, pricesRouter);
+app.use('/v1/logs', apiKeyAuth, logsRouter);
 
 app.listen(config.port, () => logger.info({ port: config.port }, 'data-service listening'));
 

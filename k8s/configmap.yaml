@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: demand-forecasting-config
+  namespace: demand-forecasting
+data:
+  # Database Configuration
+  POSTGRES_DB: "postgres"
+  POSTGRES_USER: "postgres"
+  
+  # Redis Configuration
+  REDIS_HOST: "redis-service"
+  REDIS_PORT: "6379"
+  
+  # Service URLs (internal)
+  AUTH_VALIDATE_URL: "http://auth-service:6601/internal/validate"
+  
+  # CORS Configuration
+  CORS_ORIGINS: "https://your-domain.com"
+  
+  # Logging
+  LOG_LEVEL: "info"
+  
+  # Environment
+  NODE_ENV: "production"

@@ -1,21 +1,19 @@
 import 'dotenv/config';
 import express from 'express';
 import crypto from 'crypto';
-import pino from 'pino';
 import pinoHttp from 'pino-http';
 import cors from 'cors';
 import helmet from 'helmet';
-import pino from 'pino';
 import { config } from './config/config';
 import { apiKeyAuth } from './middleware/apiKeyAuth';
 import { dimRouter } from './routes/dim.routes';
+import { createRedisLogger } from './utils/redis-logger';
 
-const logger = pino({ name: 'dim-service' });
+const logger = createRedisLogger('dim-service', process.env['LOG_LEVEL'] || 'info');
 const app = express();
-const logger = pino({ level: process.env.LOG_LEVEL || 'info' });
 app.use(pinoHttp({ logger, genReqId: (req, res) => (req.headers['x-request-id'] as string) || crypto.randomUUID() }));
 
-const ALLOW_ORIGINS = (process.env.ALLOW_ORIGINS || '*').split(',').map(s=>s.trim());
+const ALLOW_ORIGINS = (process.env['ALLOW_ORIGINS'] || '*').split(',').map(s=>s.trim());
 app.use((req, res, next) => {
   const origin = req.headers.origin as string | undefined;
   if (!origin || ALLOW_ORIGINS.includes('*') || ALLOW_ORIGINS.includes(origin)) {
@@ -45,8 +43,51 @@ app.get('/health', (_req, res) => res.json({ ok: true }));
 app.use('/v1/dim', apiKeyAuth, dimRouter);
 
 app.get('/openapi.json', (_req, res) => {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const spec = require('../openapi.json');
+  const spec = {
+    "openapi": "3.0.3",
+    "info": { "title": "Dim Service API", "version": "v1" },
+    "servers": [{ "url": "/" }],
+    "paths": {
+      "/health": { "get": { "summary": "Health check", "responses": { "200": { "description": "OK" } } } },
+      "/v1/dim/companies": {
+        "get": {
+          "summary": "List companies",
+          "security": [{ "ApiKeyAuth": [] }],
+          "responses": { "200": { "description": "OK" } }
+        }
+      },
+      "/v1/dim/depts": {
+        "get": {
+          "summary": "List departments",
+          "security": [{ "ApiKeyAuth": [] }],
+          "responses": { "200": { "description": "OK" } }
+        }
+      },
+      "/v1/dim/distribution-channels": {
+        "get": {
+          "summary": "List distribution channels",
+          "security": [{ "ApiKeyAuth": [] }],
+          "responses": { "200": { "description": "OK" } }
+        }
+      },
+      "/v1/dim/materials": {
+        "get": {
+          "summary": "List materials",
+          "security": [{ "ApiKeyAuth": [] }],
+          "responses": { "200": { "description": "OK" } }
+        }
+      }
+    },
+    "components": {
+      "securitySchemes": {
+        "ApiKeyAuth": {
+          "type": "apiKey",
+          "in": "header",
+          "name": "x-api-key"
+        }
+      }
+    }
+  };
   res.json(spec);
 });
 

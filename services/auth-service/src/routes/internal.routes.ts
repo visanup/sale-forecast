@@ -11,7 +11,7 @@ const apiKeyService = new ApiKeyService(prisma, auditService);
 // Internal API key validation endpoint for inter-service calls
 router.post('/validate', async (req, res) => {
   const internalSecretHeader = req.header('X-Internal-Secret') || '';
-  const expectedSecret = process.env.INTERNAL_SHARED_SECRET || '';
+  const expectedSecret = process.env['INTERNAL_SHARED_SECRET'] || '';
   if (!expectedSecret || internalSecretHeader !== expectedSecret) {
     return res.status(401).json({ valid: false, error: { code: 'UNAUTHORIZED' } });
   }
