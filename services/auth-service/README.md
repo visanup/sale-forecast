@@ -45,3 +45,15 @@ yarn create-api-key
 
 This will create a demo API client and generate an API key that you can use to test the other services.
 
+_________________________
+
+## สิ่งที่แก้ไข
+1. ตัดระบบยืนยันอีเมลออกจาก service (ลบเมธอด `verifyEmail` และ route `/api/v1/auth/verify-email`)
+2. ปรับให้ผู้ใช้ใหม่ถูกสร้างด้วยสถานะ `emailVerified = true` ตั้งแต่ต้น และลดการอัปเดตซ้ำในฐานข้อมูล
+3. ล้างค่าคอนฟิกและ error handler ที่เกี่ยวกับการยืนยันอีเมลเพื่อไม่ให้เหลือ flag หรือข้อความผิดพลาดที่ไม่ถูกใช้งานแล้ว
+4. ปรับ health endpoint ให้รองรับทั้ง `/healthz` และ `/health` เพื่อให้ Docker healthcheck ทำงานสำเร็จ
+
+## ขั้นตอน start docker
+1. `npx -y prisma@6.16.3 generate`
+2. `yarn install`
+3. `docker compose build auth-service`

@@ -1,5 +1,5 @@
 import fetch from 'node-fetch';
-import { config } from '../config/config';
+import { config } from '../config/config.js';
 import { Request, Response, NextFunction } from 'express';
 
 export async function apiKeyAuth(req: Request, res: Response, next: NextFunction) {
@@ -21,4 +21,3 @@ export async function apiKeyAuth(req: Request, res: Response, next: NextFunction
     return res.status(500).json({ error: { code: 'INTERNAL_ERROR' } });
   }
 }
-

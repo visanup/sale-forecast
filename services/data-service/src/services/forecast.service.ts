@@ -1,4 +1,4 @@
-import { queryUnsafe } from '../db';
+import { queryUnsafe } from '../db.js';
 
 export async function listForecast(paramsIn: {
   company?: string;
@@ -82,5 +82,4 @@ export async function aggregateForecast(paramsIn: {
     ORDER BY ${selected.join(', ')}`;
   return await queryUnsafe<any>(sql, params);
 }
-
 

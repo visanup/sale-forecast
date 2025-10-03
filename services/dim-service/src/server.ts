@@ -4,10 +4,10 @@ import crypto from 'crypto';
 import pinoHttp from 'pino-http';
 import cors from 'cors';
 import helmet from 'helmet';
-import { config } from './config/config';
-import { apiKeyAuth } from './middleware/apiKeyAuth';
-import { dimRouter } from './routes/dim.routes';
-import { createRedisLogger } from './utils/redis-logger';
+import { config } from './config/config.js';
+import { apiKeyAuth } from './middleware/apiKeyAuth.js';
+import { dimRouter } from './routes/dim.routes.js';
+import { createRedisLogger } from './utils/redis-logger.js';
 
 const logger = createRedisLogger('dim-service', process.env['LOG_LEVEL'] || 'info');
 const app = express();

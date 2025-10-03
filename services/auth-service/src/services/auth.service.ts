@@ -56,7 +56,7 @@ export class AuthService {
       email: data.email,
       username: data.username,
       password: hashedPassword,
-      emailVerified: false
+      emailVerified: true
     };
 
     if (data.firstName !== undefined) {
@@ -75,12 +75,6 @@ export class AuthService {
           }
         }
       }
-    });
-
-    // Email verification disabled - set user as verified automatically
-    await this.prisma.user.update({
-      where: { id: user.id },
-      data: { emailVerified: true }
     });
 
     // Log registration
@@ -404,14 +398,6 @@ export class AuthService {
     });
 
     return { message: 'Password reset successfully' };
-  }
-
-  /**
-   * Verify email (disabled - users are auto-verified)
-   */
-  async verifyEmail(_data: any): Promise<{ message: string }> {
-    // Email verification is disabled - return success message
-    return { message: 'Email verification is disabled. Users are automatically verified upon registration.' };
   }
 
   /**

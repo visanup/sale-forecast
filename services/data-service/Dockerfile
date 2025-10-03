@@ -1,50 +1,71 @@
-# Build stage
-FROM node:18-alpine AS builder
-
+# =========================
+# 1) Dependencies stage
+# =========================
+FROM node:22-alpine AS deps
 WORKDIR /app
 
-# Copy package files
-COPY package*.json yarn.lock* ./
+# ใช้ yarn ผ่าน corepack (ไม่ต้องติดตั้งเพิ่ม)
+RUN corepack enable
 
-# Install dependencies
-RUN npm ci
+# คัดลอกไฟล์ lock ให้ build reproducible
+COPY package.json yarn.lock ./
 
-# Copy source code
-COPY . .
+# ลง dependencies ตาม lock (ไม่สร้างไฟล์ lock ใหม่)
+RUN yarn install --frozen-lockfile
 
-# Build the application
-RUN npm run build
+# =========================
+# 2) Build stage
+# =========================
+FROM node:22-alpine AS builder
+WORKDIR /app
+RUN corepack enable
 
-# Production stage
-FROM node:18-alpine AS production
+# ดึง node_modules จาก stage ก่อนหน้า (มี devDeps สำหรับ build)
+COPY --from=deps /app/node_modules ./node_modules
 
+# คัดลอกไฟล์ที่ใช้ build
+COPY package.json yarn.lock tsconfig.json ./
+COPY prisma ./prisma
+COPY src ./src
+# ถ้ามีไฟล์ openapi.json ในรากโปรเจ็กต์ ให้คัดลอกด้วย
+COPY openapi.json ./openapi.json
+
+# สร้าง Prisma Client ตอน build (สำคัญมาก)
+RUN yarn prisma generate
+
+# build TypeScript -> dist
+RUN yarn build
+
+# =========================
+# 3) Production stage
+# =========================
+FROM node:22-alpine AS production
 WORKDIR /app
 
-# Install dumb-init for proper signal handling
+# จัดการสัญญาณให้ container ปิด/รีสตาร์ทนิ่ม ๆ
 RUN apk add --no-cache dumb-init
 
-# Create non-root user
-RUN addgroup -g 1001 -S nodejs
-RUN adduser -S nodejs -u 1001
+ENV NODE_ENV=production \
+    PORT=6603
 
-# Copy built application
-COPY --from=builder --chown=nodejs:nodejs /app/dist ./dist
+# สร้าง user ไม่ใช่ root
+RUN addgroup -g 1001 -S nodejs && adduser -S nodejs -u 1001
+
+# คัดลอกไฟล์ที่ต้องใช้รันจริง
+COPY --chown=nodejs:nodejs package.json yarn.lock ./
 COPY --from=builder --chown=nodejs:nodejs /app/node_modules ./node_modules
-COPY --from=builder --chown=nodejs:nodejs /app/package*.json ./
+COPY --from=builder --chown=nodejs:nodejs /app/dist ./dist
+COPY --from=builder --chown=nodejs:nodejs /app/openapi.json ./openapi.json
 
-# Copy environment file template
+# คัดลอก env ตัวอย่างให้ container มีค่าเริ่มต้น (ปรับได้ภายหลังด้วย ENV/compose)
 COPY --chown=nodejs:nodejs env.example .env
 
-# Switch to non-root user
 USER nodejs
-
-# Expose port
 EXPOSE 6603
 
-# Health check
+# Healthcheck แบบไม่ต้องพึ่ง curl
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD node -e "require('http').get('http://localhost:6603/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"
+  CMD node -e "require('http').get('http://localhost:6603/health', (res)=>process.exit(res.statusCode===200?0:1))"
 
-# Start the application
 ENTRYPOINT ["dumb-init", "--"]
 CMD ["node", "dist/server.js"]

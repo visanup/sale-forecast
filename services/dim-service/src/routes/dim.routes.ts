@@ -1,6 +1,8 @@
 import type { Request, Response } from 'express';
 import { Router } from 'express';
-import { dimensionListQuerySchema } from '../schemas/dimension.schema';
+import fetch from 'node-fetch';
+import { dimensionListQuerySchema } from '../schemas/dimension.schema.js';
+import { config } from '../config/config.js';
 import {
   listCompanies,
   listDepts,
@@ -10,7 +12,7 @@ import {
   listSalesOrgs,
   listMonths,
   mapServiceError
-} from '../services/dimension.service';
+} from '../services/dimension.service.js';
 
 const router = Router();
 
@@ -39,5 +41,37 @@ router.get('/materials', createHandler(listMaterials));
 router.get('/skus', createHandler(listSkus));
 router.get('/sales-orgs', createHandler(listSalesOrgs));
 router.get('/months', createHandler(listMonths));
+router.post('/import', async (req: Request, res: Response) => {
+  const apiKey = req.header('X-API-Key') || '';
+  const headers: Record<string, string> = {
+    'X-API-Key': apiKey
+  };
+  const contentType = req.headers['content-type'];
+  if (typeof contentType === 'string') {
+    headers['Content-Type'] = contentType;
+  }
+  const requestId = (req as any).requestId || req.header('X-Request-ID');
+  if (requestId) {
+    headers['X-Request-ID'] = requestId;
+  }
+
+  try {
+    const init: any = {
+      method: 'POST',
+      headers,
+      body: req as any,
+      duplex: 'half'
+    };
+    const upstream = await fetch(config.ingestUploadUrl, init);
+    const responseBuffer = Buffer.from(await upstream.arrayBuffer());
+    upstream.headers.forEach((value, key) => {
+      if (key.toLowerCase() === 'content-length') return;
+      res.setHeader(key, value);
+    });
+    return res.status(upstream.status).send(responseBuffer);
+  } catch (error) {
+    return res.status(502).json({ error: { code: 'DIM_UPLOAD_PROXY_FAILED', message: 'failed to forward upload to ingest service' } });
+  }
+});
 
 export const dimRouter = router;

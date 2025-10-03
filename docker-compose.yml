@@ -10,7 +10,7 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: password
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./setup-database.ps1:/docker-entrypoint-initdb.d/setup-database.ps1
@@ -51,6 +51,9 @@ services:
       - INTERNAL_SHARED_SECRET=dev-internal-secret
       - JWT_ACCESS_SECRET=NYr5g7vZIxvDja90w5UYoxIj-HxcYDyrBnKDRB9dQ-w
       - JWT_REFRESH_SECRET=0EnadxxwuzghQMsUDzbXxQLGx4rjqcNtUOJpkBmJYp0=
+      # 🔻 ปิดระบบอีเมล/ยืนยันอีเมล
+      - EMAIL_ENABLED=false
+      - EMAIL_VERIFICATION_REQUIRED=false
     depends_on:
       postgres:
         condition: service_healthy
@@ -107,6 +110,7 @@ services:
       - REDIS_PORT=6379
       - INTERNAL_SHARED_SECRET=dev-internal-secret
       - AUTH_VALIDATE_URL=http://auth-service:6601/internal/validate
+      - INGEST_UPLOAD_URL=http://ingest-service:6602/v1/upload
     depends_on:
       postgres:
         condition: service_healthy
@@ -136,6 +140,7 @@ services:
       - REDIS_PORT=6379
       - INTERNAL_SHARED_SECRET=dev-internal-secret
       - AUTH_VALIDATE_URL=http://auth-service:6601/internal/validate
+      - API_KEY=sf_4e77abfe2e799431a21a9bf586f2a67fb518910e2f1b50c346b3b80fb9bdf5ca
     depends_on:
       postgres:
         condition: service_healthy
@@ -157,6 +162,12 @@ services:
     container_name: demand-forecasting-frontend
     ports:
       - "6600:80"
+    environment:
+      - VITE_AUTH_URL=http://auth-service:6601
+      - VITE_DATA_URL=http://data-service:6603
+      - VITE_DIM_URL=http://dim-service:6604
+      - VITE_INGEST_URL=http://ingest-service:6602
+      - VITE_DATA_API_KEY=sf_4e77abfe2e799431a21a9bf586f2a67fb518910e2f1b50c346b3b80fb9bdf5ca
     depends_on:
       - auth-service
       - data-service

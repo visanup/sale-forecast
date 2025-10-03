@@ -63,18 +63,10 @@ export const errorHandler = (
     statusCode = 400;
     errorCode = 'INVALID_OR_EXPIRED_RESET_TOKEN';
     message = 'Invalid or expired reset token';
-  } else if (error.message === 'INVALID_OR_EXPIRED_VERIFICATION_TOKEN') {
-    statusCode = 400;
-    errorCode = 'INVALID_OR_EXPIRED_VERIFICATION_TOKEN';
-    message = 'Invalid or expired verification token';
   } else if (error.message === 'PASSWORD_RESET_TOKEN_EXPIRED') {
     statusCode = 400;
     errorCode = 'PASSWORD_RESET_TOKEN_EXPIRED';
     message = 'Password reset token has expired';
-  } else if (error.message === 'EMAIL_VERIFICATION_TOKEN_EXPIRED') {
-    statusCode = 400;
-    errorCode = 'EMAIL_VERIFICATION_TOKEN_EXPIRED';
-    message = 'Email verification token has expired';
   } else if (error.message === 'INVALID_TOKEN_TYPE') {
     statusCode = 400;
     errorCode = 'INVALID_TOKEN_TYPE';

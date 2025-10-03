@@ -4,8 +4,8 @@ import { PrismaClient } from '@prisma/client';
 const prisma = new PrismaClient();
 const router = Router();
 
-// Basic health check
-router.get('/healthz', async (_req, res) => {
+// Basic health check (alias /health for container probes)
+router.get(['/healthz', '/health'], async (_req, res) => {
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),

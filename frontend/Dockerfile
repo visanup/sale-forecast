@@ -1,31 +1,49 @@
-# Build stage
-FROM node:18-alpine AS builder
-
+# =========================
+# 1) Dependencies stage
+# =========================
+FROM node:22-alpine AS deps
 WORKDIR /app
+RUN corepack enable
 
-# Copy package files
-COPY package*.json yarn.lock* ./
+# ใช้ lock ของ yarn เพื่อให้ build reproducible
+COPY package.json yarn.lock ./
+# ต้องติดตั้ง devDeps ด้วย เพราะต้องใช้ tsc / vite ตอน build
+RUN yarn install --frozen-lockfile
 
-# Install dependencies
-RUN npm ci --only=production
+# =========================
+# 2) Build stage
+# =========================
+FROM node:22-alpine AS builder
+WORKDIR /app
+RUN corepack enable
 
-# Copy source code
-COPY . .
+# นำ node_modules (รวม devDeps) จาก deps มาใช้
+COPY --from=deps /app/node_modules ./node_modules
 
-# Build the application
-RUN npm run build
+# คัดลอกไฟล์โปรเจ็กต์สำหรับ build
+COPY package.json yarn.lock ./
+COPY tsconfig.json ./
+COPY vite.config.* ./
+COPY tailwind.config.* ./
+COPY postcss.config.* ./
+COPY index.html ./
+COPY src ./src
+# ถ้ามี public/ ให้คัดลอกด้วย
+COPY public ./public
 
-# Production stage
+# สร้างไฟล์ static (Vite จะเขียนลง /app/dist)
+RUN yarn build
+
+# =========================
+# 3) Production (Nginx) stage
+# =========================
 FROM nginx:alpine AS production
 
-# Copy built assets from builder stage
+# คัดลอกไฟล์ static ไปเสิร์ฟที่ nginx
 COPY --from=builder /app/dist /usr/share/nginx/html
 
-# Copy nginx configuration
+# คัดลอก nginx.conf ถ้ามี
 COPY nginx.conf /etc/nginx/nginx.conf
 
-# Expose port
 EXPOSE 80
-
-# Start nginx
 CMD ["nginx", "-g", "daemon off;"]

@@ -11,7 +11,8 @@ import {
   Edit3,
   Shield,
   Award,
-  Activity
+  Activity,
+  X                   // ✅ เพิ่มตัวนี้
 } from 'lucide-react';
 
 export function ProfilePage() {

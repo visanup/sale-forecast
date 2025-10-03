@@ -1,6 +1,6 @@
 import { Router } from 'express';
-import { forecastListSchema, forecastAggSchema } from '../schemas/forecast.schema';
-import { listForecast, aggregateForecast } from '../services/forecast.service';
+import { forecastListSchema, forecastAggSchema } from '../schemas/forecast.schema.js';
+import { listForecast, aggregateForecast } from '../services/forecast.service.js';
 
 export const forecastRouter = Router();
 
@@ -43,5 +43,4 @@ forecastRouter.get('/aggregate', async (req, res) => {
     return res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'invalid group' } });
   }
 });
-
 

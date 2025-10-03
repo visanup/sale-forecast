@@ -1,8 +1,8 @@
 import { Router, type Request, type Response, type RequestHandler } from 'express';
 import multer from 'multer';
 import { z } from 'zod';
-import { manualPayloadSchema } from '../schemas/ingest.schema';
-import { createRun, insertForecastRows, upsertDimensions } from '../services/ingest.service';
+import { manualPayloadSchema } from '../schemas/ingest.schema.js';
+import { createRun, insertForecastRows, upsertDimensions } from '../services/ingest.service.js';
 import xlsx from 'xlsx';
 
 export const ingestRouter = Router();
@@ -71,5 +71,4 @@ ingestRouter.post('/manual', async (req, res) => {
   }
   return res.status(201).json({ runId: Number(run.run_id) });
 });
-
 

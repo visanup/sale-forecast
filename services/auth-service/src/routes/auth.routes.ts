@@ -265,20 +265,4 @@ router.post('/reset-password', async (req, res) => {
   }
 });
 
-// Verify email (disabled - users are auto-verified)
-router.post('/verify-email', async (req, res) => {
-  try {
-    const result = await authService.verifyEmail(req.body);
-
-    const response: ApiResponse = {
-      success: true,
-      data: result
-    };
-
-    res.json(response);
-  } catch (error) {
-    throw error;
-  }
-});
-
 export { router as authRoutes };

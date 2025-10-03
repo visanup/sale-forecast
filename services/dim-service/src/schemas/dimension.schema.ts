@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { config } from '../config/config';
+import { config } from '../config/config.js';
 
 export const dimensionListQuerySchema = z.object({
   q: z.string().trim().min(1).optional(),
