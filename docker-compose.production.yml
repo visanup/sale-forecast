@@ -3,7 +3,7 @@ version: '3.8'
 services:
   # PostgreSQL Database
   postgres:
-    image: postgres:16-alpine
+    image: postgres:15-alpine
     container_name: demand-forecasting-postgres-prod
     restart: unless-stopped
     environment:
@@ -11,7 +11,7 @@ services:
       - POSTGRES_USER=${POSTGRES_USER:-postgres}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
     ports:
-      - "5432:5432"
+      - "15432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./backups:/backups
@@ -160,6 +160,7 @@ services:
       - AUTH_VALIDATE_URL=http://auth-service:6601/internal/validate
       - CORS_ORIGINS=${CORS_ORIGINS}
       - LOG_LEVEL=warn
+      - INGEST_UPLOAD_URL=http://ingest-service:6602/v1/upload
     ports:
       - "6604:6604"
     depends_on:
@@ -292,6 +293,13 @@ services:
         reservations:
           memory: 64M
           cpus: '0.1'
+  
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: demand-forecasting-mailhog
+    ports:
+      - "8025:8025"   # UI: http://localhost:8025
+      - "1025:1025"   # SMTP
 
 volumes:
   postgres_data:

@@ -1,50 +1,53 @@
-# Build stage
-FROM node:18-alpine AS builder
-
+# ---------- Build stage ----------
+FROM node:22-alpine AS builder
 WORKDIR /app
 
-# Copy package files
-COPY package*.json yarn.lock* ./
+# deps ที่มักต้องใช้กับ native modules & Prisma บน Alpine
+RUN apk add --no-cache python3 make g++ openssl libc6-compat
 
-# Install dependencies
-RUN npm ci
+# ใช้ Yarn ผ่าน Corepack (มากับ Node 18)
+RUN corepack enable
 
-# Copy source code
+# 1) ติดตั้งจาก lockfile (reproducible)
+COPY package.json yarn.lock ./
+RUN yarn install --immutable
+
+# 2) ใส่โค้ดที่เหลือ
 COPY . .
 
-# Build the application
-RUN npm run build
+# 3) generate Prisma client (ปลอดภัย แม้คุณจะมี postinstall อยู่แล้ว)
+RUN yarn prisma generate || true
 
-# Production stage
-FROM node:18-alpine AS production
+# 4) build TypeScript
+RUN yarn build
 
+
+# ---------- Runtime stage ----------
+FROM node:22-alpine AS production
 WORKDIR /app
 
-# Install dumb-init for proper signal handling
+# init ที่จัดการสัญญาณดีขึ้น
 RUN apk add --no-cache dumb-init
 
-# Create non-root user
-RUN addgroup -g 1001 -S nodejs
-RUN adduser -S nodejs -u 1001
+# ใช้ user ที่มากับ image เพื่อลดสิทธิ์
+USER node
 
-# Copy built application
-COPY --from=builder --chown=nodejs:nodejs /app/dist ./dist
-COPY --from=builder --chown=nodejs:nodejs /app/node_modules ./node_modules
-COPY --from=builder --chown=nodejs:nodejs /app/package*.json ./
+# คัดเฉพาะไฟล์จำเป็น
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/package.json ./package.json
+COPY --from=builder /app/prisma ./prisma
 
-# Copy environment file template
-COPY --chown=nodejs:nodejs env.example .env
+# (ไม่แนะนำให้ COPY .env เข้า image; ให้ส่งผ่าน env ด้วย docker compose)
+# ถ้าจำเป็นจริงค่อย uncomment บรรทัดนี้
+# COPY --chown=node:node env.example .env
 
-# Switch to non-root user
-USER nodejs
-
-# Expose port
 EXPOSE 6601
 
-# Health check
+# Healthcheck (ปรับ path ตามแอปคุณ)
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD node -e "require('http').get('http://localhost:6601/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"
+  CMD node -e "require('http').get('http://localhost:6601/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"
 
-# Start the application
 ENTRYPOINT ["dumb-init", "--"]
+# เปลี่ยนเป็นคำสั่ง start ของคุณได้ เช่น: ["yarn","start"]
 CMD ["node", "dist/server.js"]

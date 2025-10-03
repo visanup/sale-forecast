@@ -1,4 +1,4 @@
-import Redis from 'ioredis';
+import { Redis } from 'ioredis';
 import pino from 'pino';
 
 const redis = new Redis({
@@ -6,13 +6,13 @@ const redis = new Redis({
   port: Number(process.env['REDIS_PORT']) || 6380,
   ...(process.env['REDIS_PASSWORD'] && { password: process.env['REDIS_PASSWORD'] }),
   maxRetriesPerRequest: 3,
-  retryStrategy: (times) => {
+  retryStrategy: (times: number) => {
     const delay = Math.min(times * 50, 2000);
     return delay;
   }
 });
 
-redis.on('error', (err) => {
+redis.on('error', (err: Error) => {
   console.error('Redis connection error:', err);
 });
 
@@ -168,4 +168,3 @@ export function createRedisLogger(serviceName: string, level: string = 'info') {
 export function getRedisClient(): Redis {
   return redis;
 }
-

@@ -1,7 +1,7 @@
-import { prisma } from '../lib/prisma';
+import { prisma } from '../lib/prisma.js';
 import { Prisma } from '@prisma/client';
-import { config } from '../config/config';
-import type { DimensionListQuery } from '../schemas/dimension.schema';
+import { config } from '../config/config.js';
+import type { DimensionListQuery } from '../schemas/dimension.schema.js';
 
 type PaginatedResult<T> = {
 	data: T[];

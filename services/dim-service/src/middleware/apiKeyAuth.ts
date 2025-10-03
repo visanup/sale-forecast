@@ -1,6 +1,6 @@
 import type { Request, Response, NextFunction } from 'express';
 import fetch from 'node-fetch';
-import { config } from '../config/config';
+import { config } from '../config/config.js';
 
 type AuthedRequest = Request & { apiClientId?: string; apiScope?: string };
 

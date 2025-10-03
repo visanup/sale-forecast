@@ -108,6 +108,7 @@ services:
       - REDIS_PORT=6379
       - INTERNAL_SHARED_SECRET=dev-internal-secret
       - AUTH_VALIDATE_URL=http://auth-service:6601/internal/validate
+      - INGEST_UPLOAD_URL=http://ingest-service:6602/v1/upload
       - CORS_ORIGINS=http://localhost:6600
     depends_on:
       postgres:

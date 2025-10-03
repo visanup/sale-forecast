@@ -1,18 +1,20 @@
-import Redis from 'ioredis';
+import RedisModule from 'ioredis';
+import type { Redis as RedisClient } from 'ioredis';
 import pino from 'pino';
 
-const redis = new Redis({
+const RedisCtor = RedisModule as unknown as typeof import('ioredis').default;
+const redis: RedisClient = new RedisCtor({
   host: process.env['REDIS_HOST'] || 'localhost',
   port: Number(process.env['REDIS_PORT']) || 6380,
   ...(process.env['REDIS_PASSWORD'] && { password: process.env['REDIS_PASSWORD'] }),
   maxRetriesPerRequest: 3,
-  retryStrategy: (times) => {
+  retryStrategy: (times: number) => {
     const delay = Math.min(times * 50, 2000);
     return delay;
   }
 });
 
-redis.on('error', (err) => {
+redis.on('error', (err: unknown) => {
   console.error('Redis connection error:', err);
 });
 
@@ -32,7 +34,7 @@ export interface LogEntry {
 /**
  * Safely stringify data, handling circular references
  */
-function safeStringify(data: any): string {
+function safeStringify(data: unknown): string {
   if (!data) return '';
   
   try {
@@ -130,7 +132,6 @@ export function createRedisLogger(serviceName: string, level: string = 'info') {
 /**
  * Get Redis client for reading logs (used in data-service)
  */
-export function getRedisClient(): Redis {
+export function getRedisClient(): RedisClient {
   return redis;
 }
-

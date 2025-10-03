@@ -1,15 +1,18 @@
 import 'dotenv/config';
-import express from 'express';
+import express, { type Request, type Response } from 'express';
 import crypto from 'crypto';
-import pinoHttp from 'pino-http';
+import { pinoHttp } from 'pino-http';
 import cors from 'cors';
 import helmet from 'helmet';
-import { ingestRouter } from './routes/ingest';
-import { createRedisLogger } from './utils/redis-logger';
+import { ingestRouter } from './routes/ingest.js';
+import { createRedisLogger } from './utils/redis-logger.js';
 
 const logger = createRedisLogger('ingest-service', process.env['LOG_LEVEL'] || 'info');
 const app = express();
-app.use(pinoHttp({ logger, genReqId: (req, res) => (req.headers['x-request-id'] as string) || crypto.randomUUID() }));
+app.use(pinoHttp({
+  logger,
+  genReqId: (req: Request, _res: Response) => (req.headers['x-request-id'] as string) || crypto.randomUUID()
+}));
 
 const ALLOW_ORIGINS = (process.env['ALLOW_ORIGINS'] || '*').split(',').map(s=>s.trim());
 app.use((req, res, next) => {
@@ -112,5 +115,3 @@ app.get('/openapi.json', (_req, res) => {
 
 const PORT = Number(process.env.PORT || 6602);
 app.listen(PORT, () => logger.info({ port: PORT }, 'ingest-service listening'));
-
-

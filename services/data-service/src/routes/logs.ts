@@ -1,5 +1,14 @@
 import { Router } from 'express';
-import { getRedisClient } from '../utils/redis-logger';
+import { getRedisClient } from '../utils/redis-logger.js';
+
+type RedisStreamEntry = [string, string[]];
+type ParsedLogEntry = {
+  id: string;
+  service?: string;
+  level?: string;
+  timestamp?: string;
+  [key: string]: unknown;
+};
 
 const router = Router();
 const redis = getRedisClient();
@@ -21,13 +30,12 @@ router.get('/', async (req, res) => {
     const sinceFilter = req.query['since'] as string;
 
     // Read from Redis Stream
-    const logs = await redis.xrevrange('service:logs', '+', '-', 'COUNT', limit);
+    const logs = await redis.xrevrange('service:logs', '+', '-', 'COUNT', limit) as RedisStreamEntry[];
 
     // Parse and filter logs
-    const parsedLogs = logs
-      .map((log) => {
-        const [id, fields] = log;
-        const logEntry: any = { id };
+    const parsedLogs: ParsedLogEntry[] = logs
+      .map(([id, fields]) => {
+        const logEntry: ParsedLogEntry = { id };
         
         // Convert field array to object
         for (let i = 0; i < fields.length; i += 2) {
@@ -51,7 +59,7 @@ router.get('/', async (req, res) => {
         // Apply filters
         if (serviceFilter && log.service !== serviceFilter) return false;
         if (levelFilter && log.level !== levelFilter) return false;
-        if (sinceFilter && log.timestamp < sinceFilter) return false;
+        if (sinceFilter && typeof log.timestamp === 'string' && log.timestamp < sinceFilter) return false;
         return true;
       });
 
@@ -81,20 +89,20 @@ router.get('/', async (req, res) => {
  */
 router.get('/stats', async (req, res) => {
   try {
-    const streamInfo = await redis.xinfo('STREAM', 'service:logs') as any[];
+    const streamInfo = await redis.xinfo('STREAM', 'service:logs') as Array<string | number | Record<string, unknown>>;
     
     // Parse stream info
-    const stats: any = {};
+    const stats: Record<string, unknown> = {};
     for (let i = 0; i < streamInfo.length; i += 2) {
-      const key = streamInfo[i];
+      const key = String(streamInfo[i]);
       const value = streamInfo[i + 1];
-      stats[key as string] = value;
+      stats[key] = value;
     }
 
     return res.json({
       success: true,
       data: {
-        totalLogs: stats.length || 0,
+        totalLogs: (stats['length'] as number | undefined) || 0,
         firstEntry: stats['first-entry'] || null,
         lastEntry: stats['last-entry'] || null
       }
@@ -136,4 +144,3 @@ router.delete('/', async (_req, res) => {
 });
 
 export { router as logsRouter };
-

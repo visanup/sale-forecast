@@ -1,7 +1,9 @@
+// services/auth-service/src/config/config.ts
 import { config as dotenvConfig } from 'dotenv';
-
-// Load environment variables
 dotenvConfig();
+
+const bool = (v: string | undefined, def = false) =>
+  v === undefined ? def : String(v).trim().toLowerCase() === 'true';
 
 interface Config {
   databaseUrl: string;
@@ -28,15 +30,22 @@ interface Config {
   corsCredentials: boolean;
   logLevel: string;
   logFormat: string;
+
+  // 🔻 เพิ่มแฟล็กควบคุมอีเมล
+  emailEnabled: boolean;
 }
 
 export const config: Config = {
   // Database
-  databaseUrl: process.env['DATABASE_URL'] || 'postgresql://postgres:password@localhost:5432/microplates',
+  databaseUrl:
+    process.env['DATABASE_URL'] ||
+    'postgresql://postgres:password@localhost:5432/microplates',
 
   // JWT Secrets
-  jwtAccessSecret: process.env['JWT_ACCESS_SECRET'] || 'your-super-secret-access-key',
-  jwtRefreshSecret: process.env['JWT_REFRESH_SECRET'] || 'your-super-secret-refresh-key',
+  jwtAccessSecret:
+    process.env['JWT_ACCESS_SECRET'] || 'your-super-secret-access-key',
+  jwtRefreshSecret:
+    process.env['JWT_REFRESH_SECRET'] || 'your-super-secret-refresh-key',
 
   // Email Configuration
   smtp: {
@@ -44,7 +53,7 @@ export const config: Config = {
     port: parseInt(process.env['SMTP_PORT'] || '587'),
     user: process.env['SMTP_USER'] || '',
     pass: process.env['SMTP_PASS'] || '',
-    from: process.env['SMTP_FROM'] || 'Microplate AI <noreply@microplate-ai.com>'
+    from: process.env['SMTP_FROM'] || 'Microplate AI <noreply@microplate-ai.com>',
   },
 
   // Application
@@ -58,7 +67,6 @@ export const config: Config = {
   tokenExpiryAccess: process.env['TOKEN_EXPIRY_ACCESS'] || '15m',
   tokenExpiryRefresh: process.env['TOKEN_EXPIRY_REFRESH'] || '7d',
   passwordResetExpiry: process.env['PASSWORD_RESET_EXPIRY'] || '30m',
-  // Email verification disabled
 
   // Rate Limiting
   rateLimitWindowMs: parseInt(process.env['RATE_LIMIT_WINDOW_MS'] || '900000'), // 15 minutes
@@ -66,26 +74,49 @@ export const config: Config = {
 
   // CORS
   corsOrigin: process.env['CORS_ORIGIN'] || '*',
-  corsCredentials: process.env['CORS_CREDENTIALS'] ? process.env['CORS_CREDENTIALS'] === 'true' : true,
+  corsCredentials: process.env['CORS_CREDENTIALS']
+    ? process.env['CORS_CREDENTIALS'] === 'true'
+    : true,
 
   // Logging
   logLevel: process.env['LOG_LEVEL'] || 'info',
-  logFormat: process.env['LOG_FORMAT'] || 'pretty'
+  logFormat: process.env['LOG_FORMAT'] || 'pretty',
+
+  // Email flags
+  emailEnabled: bool(process.env['EMAIL_ENABLED'], false),
 };
 
-// Validation
-if (!config.jwtAccessSecret || config.jwtAccessSecret === 'your-super-secret-access-key') {
+// ================== Validation ==================
+const isProd = config.nodeEnv === 'production';
+
+// JWT ต้องตั้งจริงเมื่อ production
+if (
+  isProd &&
+  (!config.jwtAccessSecret ||
+    config.jwtAccessSecret === 'your-super-secret-access-key')
+) {
   throw new Error('JWT_ACCESS_SECRET must be set in production');
 }
 
-if (!config.jwtRefreshSecret || config.jwtRefreshSecret === 'your-super-secret-refresh-key') {
+if (
+  isProd &&
+  (!config.jwtRefreshSecret ||
+    config.jwtRefreshSecret === 'your-super-secret-refresh-key')
+) {
   throw new Error('JWT_REFRESH_SECRET must be set in production');
 }
 
-if (config.nodeEnv === 'production' && !config.smtp.user) {
-  throw new Error('SMTP_USER must be set in production');
-}
-
-if (config.nodeEnv === 'production' && !config.smtp.pass) {
-  throw new Error('SMTP_PASS must be set in production');
+// SMTP validation จะตรวจเฉพาะตอน emailEnabled=true
+if (isProd && config.emailEnabled) {
+  if (!config.smtp.user) {
+    throw new Error('SMTP_USER must be set in production when EMAIL_ENABLED=true');
+  }
+  if (!config.smtp.pass) {
+    throw new Error('SMTP_PASS must be set in production when EMAIL_ENABLED=true');
+  }
+} else if (isProd && !config.emailEnabled) {
+  // ไม่บังคับ SMTP; log เตือนอย่างเดียว
+  console.warn(
+    '[auth-service] EMAIL_ENABLED=false in production — email features are disabled.'
+  );
 }

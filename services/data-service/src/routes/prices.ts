@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { queryUnsafe } from '../db';
+import { queryUnsafe } from '../db.js';
 
 export const pricesRouter = Router();
 
@@ -33,5 +33,4 @@ pricesRouter.get('/', async (req, res) => {
   );
   return res.json({ data: rows, paging: { next: null } });
 });
-
 

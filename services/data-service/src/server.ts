@@ -1,19 +1,26 @@
 import 'dotenv/config';
 import express from 'express';
+import type { Request, Response } from 'express';
 import crypto from 'crypto';
 import pinoHttp from 'pino-http';
+import type { HttpLogger } from 'pino-http';
 import cors from 'cors';
 import helmet from 'helmet';
-import { config } from './config/config';
-import { apiKeyAuth } from './middleware/apiKeyAuth';
-import { forecastRouter } from './routes/forecast';
-import { pricesRouter } from './routes/prices';
-import { logsRouter } from './routes/logs';
-import { createRedisLogger } from './utils/redis-logger';
+import { config } from './config/config.js';
+import { apiKeyAuth } from './middleware/apiKeyAuth.js';
+import { forecastRouter } from './routes/forecast.js';
+import { pricesRouter } from './routes/prices.js';
+import { logsRouter } from './routes/logs.js';
+import { createRedisLogger } from './utils/redis-logger.js';
 
 const logger = createRedisLogger('data-service', process.env['LOG_LEVEL'] || 'info');
 const app = express();
-app.use(pinoHttp({ logger, genReqId: (req, res) => (req.headers['x-request-id'] as string) || crypto.randomUUID() }));
+const pinoHttpFn = pinoHttp as unknown as typeof import('pino-http').default;
+const httpLogger = pinoHttpFn({
+  logger,
+  genReqId: (req: Request, res: Response) => (req.headers['x-request-id'] as string) || crypto.randomUUID()
+}) as HttpLogger<Request, Response>;
+app.use(httpLogger);
 
 // Basic CORS with whitelist from env
 const ALLOW_ORIGINS = (process.env['ALLOW_ORIGINS'] || '*').split(',').map(s=>s.trim());
@@ -105,5 +112,3 @@ app.use('/v1/prices', apiKeyAuth, pricesRouter);
 app.use('/v1/logs', apiKeyAuth, logsRouter);
 
 app.listen(config.port, () => logger.info({ port: config.port }, 'data-service listening'));
-
-
