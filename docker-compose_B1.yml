@@ -1,3 +1,5 @@
+version: '3.8'
+
 services:
   # Database
   postgres:
@@ -11,7 +13,7 @@ services:
       - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      # - ./setup-database.ps1:/docker-entrypoint-initdb.d/setup-database.ps1  # (ไม่รองรับ .ps1 บน image Linux)
+      #- ./setup-database.ps1:/docker-entrypoint-initdb.d/setup-database.ps1
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
@@ -166,7 +168,6 @@ services:
       - VITE_DIM_URL=http://dim-service:6604
       - VITE_INGEST_URL=http://ingest-service:6602
       - VITE_DATA_API_KEY=sf_4e77abfe2e799431a21a9bf586f2a67fb518910e2f1b50c346b3b80fb9bdf5ca
-      - VITE_INGEST_API_KEY=sf_4e77abfe2e799431a21a9bf586f2a67fb518910e2f1b50c346b3b80fb9bdf5ca
     depends_on:
       - auth-service
       - data-service
@@ -187,13 +188,14 @@ services:
     environment:
       PGADMIN_DEFAULT_EMAIL: admin@example.com
       PGADMIN_DEFAULT_PASSWORD: admin1234
-      PGADMIN_CONFIG_SERVER_MODE: 'False'  # single user
+      # (ไม่จำเป็น) เปิดโหมด single user
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
     volumes:
       - pgadmin_data:/var/lib/pgadmin
-      # (ออปชั่น) auto-register server — ถ้าไม่ได้ใช้ให้คอมเมนต์ไว้
-      # - ./pgadmin/servers.json:/pgadmin4/servers.json:ro
+      # (ออปชั่น) auto-register server ใน pgAdmin ตอนเริ่มครั้งแรก
+      - ./pgadmin/servers.json:/pgadmin4/servers.json:ro   # ✅ auto-register
     networks:
-      - default            # ✅ ใช้ default network (ถูกตั้งชื่อเป็น demand-forecasting-network ด้านล่าง)
+      - demand-forecasting-network
     depends_on:
       - postgres
     restart: unless-stopped

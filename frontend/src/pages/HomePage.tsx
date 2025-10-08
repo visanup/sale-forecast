@@ -15,6 +15,7 @@ import {
   Users,
   Target
 } from 'lucide-react';
+import { ingestApi } from '../services/api';
 
 type RowObject = Record<string, string | number | null>;
 
@@ -22,8 +23,15 @@ export function HomePage() {
   const [tab, setTab] = useState<'upload'|'manual'>('upload');
   const [rows, setRows] = useState<RowObject[]>([]);
   const [headers, setHeaders] = useState<string[]>([]);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [anchorMonth, setAnchorMonth] = useState<string>(new Date().toISOString().slice(0,7));
+  const [isUploading, setIsUploading] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [messageKind, setMessageKind] = useState<'success' | 'error' | 'info'>('info');
 
   function handleFile(file: File) {
+    setSelectedFile(file);
+    setMessage(null);
     const reader = new FileReader();
     reader.onload = (e) => {
       const data = new Uint8Array(e.target?.result as ArrayBuffer);
@@ -35,6 +43,27 @@ export function HomePage() {
       setHeaders(hdr || Object.keys(json[0] || {}));
     };
     reader.readAsArrayBuffer(file);
+  }
+
+  async function handleUpload() {
+    if (!selectedFile) {
+      setMessageKind('error');
+      setMessage('กรุณาเลือกไฟล์ก่อน');
+      return;
+    }
+    setIsUploading(true);
+    setMessageKind('info');
+    setMessage('กำลังอัปโหลด...');
+    try {
+      const result = await ingestApi.upload(selectedFile, anchorMonth || new Date().toISOString().slice(0,7));
+      setMessageKind('success');
+      setMessage(`Upload สำเร็จ! Run ID: ${result.runId}`);
+    } catch (error: any) {
+      setMessageKind('error');
+      setMessage(error?.message || 'Upload ล้มเหลว');
+    } finally {
+      setIsUploading(false);
+    }
   }
 
   function onCellEdit(rIndex: number, key: string, value: string) {
@@ -88,6 +117,17 @@ export function HomePage() {
                     <p className="text-gray-600 dark:text-gray-400">Upload Excel (.xlsx) files and preview or edit before processing</p>
                   </div>
                 </div>
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Anchor Month (yyyy-mm)
+                  </label>
+                  <input
+                    type="month"
+                    value={anchorMonth}
+                    onChange={e => setAnchorMonth(e.target.value)}
+                    className="input"
+                  />
+                </div>
                 <FileUpload onFile={handleFile} />
               </div>
             )}
@@ -111,21 +151,50 @@ export function HomePage() {
 
         {/* Data Preview */}
         {tab === 'upload' && rows.length > 0 && (
-          <div className="mt-8 bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm rounded-2xl shadow-2xl border border-white/20 overflow-hidden">
-            <div className="bg-gradient-to-r from-gray-50 to-gray-100 dark:from-gray-700 dark:to-gray-600 px-8 py-4 border-b border-gray-200/70 dark:border-gray-700/70">
-              <div className="flex items-center gap-3">
-                <div className="inline-flex items-center justify-center w-8 h-8 bg-gradient-to-r from-blue-600 to-cyan-600 rounded-lg">
-                  <BarChart3 className="w-4 h-4 text-white" />
+          <div className="mt-8 space-y-4">
+            <div className="bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm rounded-2xl shadow-2xl border border-white/20 overflow-hidden">
+              <div className="bg-gradient-to-r from-gray-50 to-gray-100 dark:from-gray-700 dark:to-gray-600 px-8 py-4 border-b border-gray-200/70 dark:border-gray-700/70">
+                <div className="flex items-center gap-3">
+                  <div className="inline-flex items-center justify-center w-8 h-8 bg-gradient-to-r from-blue-600 to-cyan-600 rounded-lg">
+                    <BarChart3 className="w-4 h-4 text-white" />
+                  </div>
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Data Preview</h3>
+                  <span className="ml-auto px-3 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200 text-sm font-medium rounded-full">
+                    {rows.length} rows
+                  </span>
                 </div>
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Data Preview</h3>
-                <span className="ml-auto px-3 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200 text-sm font-medium rounded-full">
-                  {rows.length} rows
-                </span>
+              </div>
+              <div className="p-0">
+                <EditableGrid headers={headers} rows={rows} onEdit={onCellEdit} />
               </div>
             </div>
-            <div className="p-0">
-              <EditableGrid headers={headers} rows={rows} onEdit={onCellEdit} />
+
+            <div className="flex items-center gap-4">
+              <button
+                onClick={handleUpload}
+                disabled={isUploading}
+                className="btn-primary"
+              >
+                {isUploading ? 'Uploading…' : 'Submit to Ingest'}
+              </button>
+              {selectedFile && (
+                <span className="text-sm text-gray-600 dark:text-gray-400">{selectedFile.name}</span>
+              )}
             </div>
+
+            {message && (
+              <div
+                className={`rounded-lg px-4 py-3 text-sm ${
+                  messageKind === 'success'
+                    ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200'
+                    : messageKind === 'error'
+                      ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-200'
+                      : 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-200'
+                }`}
+              >
+                {message}
+              </div>
+            )}
           </div>
         )}
 
@@ -133,5 +202,4 @@ export function HomePage() {
     </div>
   );
 }
-
 

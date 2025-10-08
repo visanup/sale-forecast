@@ -225,10 +225,6 @@ export async function listSkus(params: DimensionListQuery): Promise<PaginatedRes
 
 	const records = await prisma.dim_sku.findMany({
 		where,
-		include: {
-			material: true,
-			uom: true
-		},
 		take: limit + 1,
 		orderBy: { sku_id: 'asc' },
 		...(cursorFilter ? { skip: 1, cursor: cursorFilter } : {})
@@ -238,14 +234,45 @@ export async function listSkus(params: DimensionListQuery): Promise<PaginatedRes
 	const items = hasNext ? records.slice(0, limit) : records;
 	const nextCursor = hasNext ? toStringId(items[items.length - 1].sku_id) : null;
 
+	const materialIds = [...new Set(items.map((item: any) => item.material_id))];
+	const uomIds = [...new Set(items.map((item: any) => item.uom_id))];
+
+	const [materials, uoms] = await Promise.all([
+		materialIds.length
+			? prisma.dim_material.findMany({
+					where: { material_id: { in: materialIds as bigint[] } }
+				})
+			: Promise.resolve([]),
+		uomIds.length
+			? prisma.dim_uom.findMany({
+					where: { uom_id: { in: uomIds as bigint[] } }
+				})
+			: Promise.resolve([])
+	]);
+
+	const materialMap = new Map<string, { material_code: string; material_desc: string | null }>();
+	for (const material of materials as any[]) {
+		materialMap.set(toStringId(material.material_id), {
+			material_code: material.material_code,
+			material_desc: material.material_desc ?? null
+		});
+	}
+
+	const uomMap = new Map<string, { uom_code: string }>();
+	for (const uom of uoms as any[]) {
+		uomMap.set(toStringId(uom.uom_id), {
+			uom_code: uom.uom_code
+		});
+	}
+
 	return {
 		data: items.map((item: any) => ({
-		skuId: toStringId(item.sku_id),
-		materialId: toStringId(item.material_id),
-		materialCode: item.material.material_code,
-		packSize: item.pack_size,
-		uomId: toStringId(item.uom_id),
-		uomCode: item.uom.uom_code
+			skuId: toStringId(item.sku_id),
+			materialId: toStringId(item.material_id),
+			materialCode: materialMap.get(toStringId(item.material_id))?.material_code ?? '',
+			packSize: item.pack_size,
+			uomId: toStringId(item.uom_id),
+			uomCode: uomMap.get(toStringId(item.uom_id))?.uom_code ?? ''
 		})),
 		nextCursor
 	};

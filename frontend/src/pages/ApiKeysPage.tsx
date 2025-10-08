@@ -19,6 +19,7 @@ import {
   Lock,
   Unlock
 } from 'lucide-react';
+import { setActiveApiKey } from '../services/apiKeyStorage';
 
 interface ApiClient {
   clientId: string;
@@ -88,6 +89,9 @@ export function ApiKeysPage() {
       console.log('Create Key Response:', response);
       console.log('Created Key Data:', response.data);
       setCreatedKey(response.data);
+      if (response.data?.apiKey) {
+        setActiveApiKey(response.data.apiKey);
+      }
       setShowCreateKey(null);
       setNewKeyScope('read:forecast');
       fetchClients();

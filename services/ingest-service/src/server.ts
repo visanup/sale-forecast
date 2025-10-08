@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import express, { type Request, type Response } from 'express';
+import fetch from 'node-fetch';
 import crypto from 'crypto';
 import { pinoHttp } from 'pino-http';
 import cors from 'cors';
@@ -56,13 +57,59 @@ app.use(express.json());
 
 app.get('/health', (_req, res) => res.json({ ok: true }));
 
+const STATIC_API_KEY = process.env['API_KEY'] || '';
+const AUTH_VALIDATE_URL = process.env['AUTH_VALIDATE_URL'] || '';
+const INTERNAL_SHARED_SECRET = process.env['INTERNAL_SHARED_SECRET'] || '';
+
+async function isApiKeyValid(key: string, requestId: string): Promise<boolean> {
+  if (!key) return false;
+  if (STATIC_API_KEY && key === STATIC_API_KEY) return true;
+  try {
+    if (!AUTH_VALIDATE_URL) {
+      throw new Error('AUTH_VALIDATE_URL not configured');
+    }
+    if (!INTERNAL_SHARED_SECRET) {
+      throw new Error('INTERNAL_SHARED_SECRET not configured');
+    }
+
+    const resp = await fetch(AUTH_VALIDATE_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Internal-Secret': INTERNAL_SHARED_SECRET
+      },
+      body: JSON.stringify({ apiKey: key })
+    });
+
+    if (!resp.ok) {
+      logger.warn({ requestId, status: resp.status }, 'auth service validation request failed');
+      return false;
+    }
+
+    const data = (await resp.json().catch(() => ({}))) as { valid?: boolean };
+    return Boolean(data?.valid);
+  } catch (error) {
+    logger.error({ requestId, error }, 'failed to validate api key with auth-service');
+    throw error;
+  }
+}
+
 // Simple API key protection for ingest endpoints
 app.use('/v1', (req, res, next) => {
-  const requiredKey = process.env.API_KEY || '';
-  if (!requiredKey) return res.status(500).json({ error: { code: 'SERVER_CONFIG', message: 'API_KEY not configured' } });
   const key = (req.headers['x-api-key'] as string) || '';
-  if (key !== requiredKey) return res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'invalid api key' } });
-  next();
+  const requestId = (req as any).requestId as string;
+
+  isApiKeyValid(key, requestId)
+    .then((valid) => {
+      if (!valid) {
+        return res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'invalid api key' } });
+      }
+      next();
+    })
+    .catch((error) => {
+      logger.error({ requestId, error }, 'unexpected error during api key validation');
+      res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'api key validation failed' } });
+    });
 }, ingestRouter);
 
 app.get('/openapi.json', (_req, res) => {
