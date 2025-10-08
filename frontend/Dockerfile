@@ -27,6 +27,7 @@ COPY vite.config.* ./
 COPY tailwind.config.* ./
 COPY postcss.config.* ./
 COPY index.html ./
+COPY .env ./.env
 COPY src ./src
 # ถ้ามี public/ ให้คัดลอกด้วย
 COPY public ./public

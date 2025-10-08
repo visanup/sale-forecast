@@ -17,6 +17,7 @@ import {
   Eye,
   EyeOff
 } from 'lucide-react';
+import { getActiveApiKey, setActiveApiKey } from '../services/apiKeyStorage';
 
 type Service = { 
   name: string; 
@@ -57,7 +58,7 @@ export function ApiPortalPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [apiClients, setApiClients] = useState<ApiClient[]>([]);
-  const [selectedApiKey, setSelectedApiKey] = useState<string>('');
+  const [selectedApiKey, setSelectedApiKey] = useState<string>(() => getActiveApiKey() || '');
   const [showApiKeyInput, setShowApiKeyInput] = useState(false);
   const container = useRef<HTMLDivElement>(null);
 
@@ -235,7 +236,12 @@ export function ApiPortalPage() {
                     Cancel
                   </button>
                   <button
-                    onClick={() => setShowApiKeyInput(false)}
+                    onClick={() => {
+                      const normalized = selectedApiKey.trim();
+                      setActiveApiKey(normalized);
+                      setSelectedApiKey(normalized);
+                      setShowApiKeyInput(false);
+                    }}
                     className="flex-1 px-6 py-4 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white rounded-2xl transition-all duration-300 transform hover:scale-105 shadow-lg font-semibold"
                   >
                     Add Key
@@ -389,7 +395,11 @@ export function ApiPortalPage() {
                     </div>
                     <div className="space-y-2">
                       <button
-                        onClick={() => setSelectedApiKey('sf_bc8229e6a718bde8a960bf9ae8075682240df3711594c76857c2c05b6e30ebe9')}
+                        onClick={() => {
+                          const demoKey = 'sf_bc8229e6a718bde8a960bf9ae8075682240df3711594c76857c2c05b6e30ebe9';
+                          setSelectedApiKey(demoKey);
+                          setActiveApiKey(demoKey);
+                        }}
                         className={`w-full text-left p-3 rounded-xl border transition-all duration-300 ${
                           selectedApiKey === 'sf_bc8229e6a718bde8a960bf9ae8075682240df3711594c76857c2c05b6e30ebe9'
                             ? 'bg-gradient-to-r from-green-100 to-emerald-100 dark:from-green-900/30 dark:to-emerald-900/30 border-green-300 dark:border-green-600'
@@ -542,5 +552,4 @@ export function ApiPortalPage() {
     </div>
   );
 }
-
 

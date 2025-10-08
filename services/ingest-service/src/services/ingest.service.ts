@@ -58,7 +58,12 @@ export async function upsertDimensions(input: any) {
 }
 
 export async function createRun(anchorMonth: string, method: string, notes?: string) {
-  const run = await prisma.forecast_run.create({ data: { anchor_month: new Date(anchorMonth + '-01'), method, notes } });
+  // Schema currently only supports anchor_month + created_at; keep method/notes for future extension.
+  const run = await prisma.forecast_run.create({
+    data: {
+      anchor_month: new Date(anchorMonth + '-01')
+    }
+  });
   return run;
 }
 
@@ -90,5 +95,4 @@ export async function insertForecastRows(runId: bigint, line: any, dim: any, anc
     await prisma.fact_forecast.createMany({ data: rows, skipDuplicates: true });
   }
 }
-
 

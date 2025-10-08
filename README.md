@@ -189,6 +189,14 @@ DemandForecasting/
   - Excel file processing
   - Data validation
   - Batch data import
+  - API key validation against auth-service (see update below)
+
+### 🔐 Latest Fixes
+- Ingest service now falls back to an internal verification call (`AUTH_VALIDATE_URL`) when `X-API-Key` headers do not match the optional static key. Ensure `AUTH_VALIDATE_URL` and `INTERNAL_SHARED_SECRET` are set in `services/ingest-service/.env`.
+- Frontend upload requests reuse the most recent API key saved on the **API Portal** or generated on the **API Keys** page. Once a user enters or creates a key, it is stored in `localStorage` and used for ingest/data requests automatically.
+- If uploads return `401`, confirm the auth-service contains the key (e.g. via `/api/v1/api-keys`) and that the ingest service container has been restarted with the new environment variables.
+- DIM service build error (`Type '{ material: true; uom: true; }' is not assignable to type 'never'`) has been resolved by fetching material and UOM metadata via separate queries, which matches the current Prisma schema without relation definitions.
+- Ingest service build error (`'method' does not exist in forecast_runCreateInput`) has been addressed by aligning `createRun` with the current Prisma schema (anchor month only), keeping method/notes parameters reserved for future schema migrations.
 
 ### DIM Service (Port 6604)
 - **Technology**: Node.js + Express + Prisma

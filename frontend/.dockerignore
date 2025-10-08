@@ -4,7 +4,7 @@ dist
 .git
 .gitignore
 README.md
-.env
+# Keep environment files available for Vite build (values already provided via docker-compose env)
 .nyc_output
 coverage
 .vscode

@@ -5,6 +5,7 @@ const DATA_BASE = import.meta.env.VITE_DATA_URL || 'http://localhost:6603';
 const DIM_BASE = import.meta.env.VITE_DIM_URL || 'http://localhost:6604';
 const INGEST_BASE = import.meta.env.VITE_INGEST_URL || 'http://localhost:6602';
 const DATA_API_KEY = import.meta.env.VITE_DATA_API_KEY || 'changeme';
+const INGEST_API_KEY = import.meta.env.VITE_INGEST_API_KEY || DATA_API_KEY;
 
 async function http<T>(url: string, init?: RequestInit): Promise<T> {
   // merge headers and attach Authorization if available
@@ -67,12 +68,19 @@ export const ingestApi = {
     const fd = new FormData();
     fd.append('file', file);
     fd.append('anchorMonth', anchorMonth);
-    return http<{ runId: number }>(`${INGEST_BASE}/v1/upload`, { method: 'POST', body: fd });
+    return http<{ runId: number }>(`${INGEST_BASE}/v1/upload`, { 
+      method: 'POST', 
+      headers: { 'x-api-key': INGEST_API_KEY }, 
+      body: fd 
+    });
   },
   async manual(payload: { anchorMonth: string; lines: Array<{ company_code: string; dept_code?: string; dc_code?: string; division?: string; sales_organization?: string; sales_office?: string; sales_group?: string; sales_representative?: string; material_code: string; material_desc?: string; pack_size?: string; uom_code?: string; n_2?: number; n_1?: number; n?: number; n1?: number; n2?: number; n3?: number; price?: number; }> }) {
     return http<{ runId: number }>(`${INGEST_BASE}/v1/manual`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json',
+        'x-api-key': INGEST_API_KEY 
+      },
       body: JSON.stringify(payload)
     });
   }
@@ -196,5 +204,3 @@ export const api = {
     return http<any>(fullUrl, { method: 'DELETE' });
   }
 };
-
-
