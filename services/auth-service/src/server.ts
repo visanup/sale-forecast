@@ -10,6 +10,7 @@ import { authRoutes } from './routes/auth.routes';
 import { healthRoutes } from './routes/health.routes';
 import { internalRoutes } from './routes/internal.routes';
 import { apiKeyRoutes } from './routes/apiKey.routes';
+import { profileRoutes } from './routes/profile.routes';
 import { errorHandler } from './middleware/error.middleware';
 import { requestLogger } from './middleware/logging.middleware';
 import { config } from './config/config';
@@ -89,6 +90,7 @@ app.use(
 // Routes
 app.use('/', healthRoutes);
 app.use('/api/v1/auth', authRoutes);
+app.use('/api/v1/profile', profileRoutes);
 app.use('/api/v1/api-keys', apiKeyRoutes);
 app.use('/internal', internalRoutes);
 

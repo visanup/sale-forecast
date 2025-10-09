@@ -1,8 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
-import jwt from 'jsonwebtoken';
-import { config } from '../config/config';
+import { TokenUtil } from '../utils/token.util';
+import type { TokenPayload } from '../types/auth.types';
 
-// Extend Express Request to include user information
 declare global {
   namespace Express {
     interface Request {
@@ -10,66 +9,75 @@ declare global {
         userId: string;
         username: string;
         email: string;
+        roles: string[];
+        tokenId: string;
       };
     }
   }
 }
 
 /**
- * Middleware to require authentication via JWT token
+ * Require a valid Bearer token before proceeding
  */
 export const requireAuth = (req: Request, res: Response, next: NextFunction): void => {
+  const authHeader = req.headers.authorization;
+
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    res.status(401).json({
+      success: false,
+      error: {
+        code: 'UNAUTHORIZED',
+        message: 'No authorization token provided'
+      }
+    });
+    return;
+  }
+
+  const token = authHeader.substring(7).trim();
+
   try {
-    // Get token from Authorization header
-    const authHeader = req.headers.authorization;
-    
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      res.status(401).json({
-        success: false,
-        error: {
-          code: 'UNAUTHORIZED',
-          message: 'No authorization token provided'
-        }
-      });
-      return;
-    }
+    const decoded: TokenPayload = TokenUtil.verifyAccessToken(token);
 
-    const token = authHeader.substring(7); // Remove 'Bearer ' prefix
-
-    // Verify the token
-    const decoded = jwt.verify(token, config.jwtAccessSecret) as {
-      userId: string;
-      username: string;
-      email: string;
-    };
-
-    // Attach user info to request
-    req.user = {
-      userId: decoded.userId,
-      username: decoded.username,
-      email: decoded.email
-    };
-
-    next();
-  } catch (error) {
-    if (error instanceof jwt.JsonWebTokenError) {
+    if (!decoded?.sub) {
       res.status(401).json({
         success: false,
         error: {
           code: 'INVALID_TOKEN',
-          message: 'Invalid or expired token'
+          message: 'Token payload is missing subject'
         }
       });
       return;
     }
 
-    res.status(500).json({
+    req.user = {
+      userId: decoded.sub,
+      username: decoded.username,
+      email: decoded.email,
+      roles: decoded.roles || [],
+      tokenId: decoded.jti
+    };
+
+    next();
+  } catch (error: any) {
+    const message = error?.message || 'INVALID_TOKEN';
+
+    if (message === 'TOKEN_EXPIRED') {
+      res.status(401).json({
+        success: false,
+        error: {
+          code: 'TOKEN_EXPIRED',
+          message: 'Authorization token has expired'
+        }
+      });
+      return;
+    }
+
+    res.status(401).json({
       success: false,
       error: {
-        code: 'INTERNAL_ERROR',
-        message: 'Authentication failed'
+        code: 'INVALID_TOKEN',
+        message: 'Invalid or expired token'
       }
     });
   }
 };
-

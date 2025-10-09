@@ -12,7 +12,7 @@ const AUDIENCE = 'microplate-api';
  */
 export class TokenUtil {
   static generateAccessToken(
-    payload: Omit<TokenPayload, 'iat' | 'exp' | 'jti' | 'type'>
+    payload: Omit<TokenPayload, 'iat' | 'exp' | 'type'>
   ): string {
     return jwt.sign(
       { 
@@ -34,15 +34,17 @@ export class TokenUtil {
   static generateRefreshToken(
     payload: Omit<TokenPayload, 'iat' | 'exp' | 'type'>
   ): string {
+    const tokenId = randomUUID();
+
     return jwt.sign(
       { 
         ...payload, 
-        jti: randomUUID(), 
+        jti: tokenId, 
         type: 'refresh',
         iss: ISSUER,
         aud: AUDIENCE
       },
-      config.jwtAccessSecret,
+      config.jwtRefreshSecret,
       {
         expiresIn: config.tokenExpiryRefresh
       } as jwt.SignOptions
@@ -72,7 +74,7 @@ export class TokenUtil {
    */
   static verifyRefreshToken(token: string): TokenPayload {
     try {
-      const decoded = jwt.verify(token, config.jwtAccessSecret) as TokenPayload;
+      const decoded = jwt.verify(token, config.jwtRefreshSecret) as TokenPayload;
       if (decoded.type !== 'refresh' || decoded.iss !== ISSUER || decoded.aud !== AUDIENCE) {
         throw new Error('INVALID_TOKEN_TYPE');
       }

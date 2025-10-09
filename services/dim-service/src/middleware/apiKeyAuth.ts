@@ -9,6 +9,18 @@ export async function apiKeyAuth(req: Request, res: Response, next: NextFunction
 	if (!key) {
 		return res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'missing api key' } });
 	}
+
+	if (config.staticApiKey && key === config.staticApiKey) {
+		const r = req as AuthedRequest;
+		r.apiClientId = 'static-key';
+		r.apiScope = 'read';
+		return next();
+	}
+
+	if (!config.internalSecret) {
+		return res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'api validation not configured' } });
+	}
+
 	try {
 		const resp = await fetch(config.authValidateUrl, {
 			method: 'POST',

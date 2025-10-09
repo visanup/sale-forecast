@@ -3,23 +3,46 @@ import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Link, useNavigate } from 'react-router-dom';
 import { authApi } from '../services/api';
+import { useAuth } from '../hooks/useAuth';
 import { User, Mail, Lock, ArrowRight, Sparkles } from 'lucide-react';
 
+const passwordSchema = z
+  .string()
+  .min(8, 'Password must be at least 8 characters long')
+  .refine(value => /[A-Z]/.test(value), { message: 'Password must contain at least one uppercase letter' })
+  .refine(value => /[a-z]/.test(value), { message: 'Password must contain at least one lowercase letter' })
+  .refine(value => /\d/.test(value), { message: 'Password must contain at least one number' })
+  .refine(value => /[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]/.test(value), {
+    message: 'Password must contain at least one special character'
+  });
+
 const schema = z.object({
-  name: z.string().min(1),
-  email: z.string().email(),
-  password: z.string().min(6)
+  name: z
+    .string()
+    .min(1, 'Full name is required')
+    .max(120, 'Full name must be below 120 characters')
+    .transform(value => value.trim())
+    .refine(value => value.length > 0, { message: 'Full name is required' }),
+  email: z.string().email('Please provide a valid email address'),
+  password: passwordSchema
 });
 type FormValues = z.infer<typeof schema>;
 
 export function SignupPage() {
   const { register, handleSubmit, formState: { errors, isSubmitting }, setError } = useForm<FormValues>({ resolver: zodResolver(schema) });
   const navigate = useNavigate();
+  const { login } = useAuth();
 
   async function onSubmit(values: FormValues) {
     try {
-      await authApi.register({ email: values.email, username: values.email, password: values.password, firstName: values.name });
-      navigate('/login');
+      await authApi.register({
+        email: values.email,
+        username: values.email,
+        password: values.password,
+        firstName: values.name
+      });
+      await login(values.email, values.password);
+      navigate('/');
     } catch (e: any) {
       setError('root', { message: e.message || 'Signup failed' });
     }
@@ -188,5 +211,4 @@ export function SignupPage() {
     </div>
   );
 }
-
 
