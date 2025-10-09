@@ -1,9 +1,13 @@
-import { Router } from 'express';
+import { Router, Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { AuthService } from '../services/auth.service';
 import { AuditService } from '../services/audit.service';
 // Schema validation will be handled by Express middleware if needed
 import { ApiResponse } from '../types/auth.types';
+import { body } from 'express-validator';
+import { validateRequest } from '../middleware/validation.middleware';
+import { requireAuth } from '../middleware/auth.middleware';
+import { TokenUtil } from '../utils/token.util';
 
 const prisma = new PrismaClient();
 const auditService = new AuditService(prisma);
@@ -35,30 +39,48 @@ const router = Router();
  *         description: Created
  */
 // Register user
-router.post('/register', async (req, res) => {
-  try {
-    const result = await authService.register(req.body, {
-      ipAddress: req.ip || 'unknown',
-      userAgent: req.headers['user-agent'] || 'unknown'
-    });
+router.post(
+  '/register',
+  [
+    body('email').isEmail().withMessage('Email must be valid'),
+    body('username')
+      .isString()
+      .trim()
+      .isLength({ min: 3, max: 100 })
+      .withMessage('Username must be between 3 and 100 characters'),
+    body('password')
+      .isString()
+      .isLength({ min: 8 })
+      .withMessage('Password must be at least 8 characters long'),
+    body('firstName').optional().isString().trim().isLength({ max: 120 }),
+    body('lastName').optional().isString().trim().isLength({ max: 120 })
+  ],
+  validateRequest,
+  async (req: Request, res: Response) => {
+    try {
+      const result = await authService.register(req.body, {
+        ipAddress: req.ip || 'unknown',
+        userAgent: req.headers['user-agent'] || 'unknown'
+      });
 
-    const response: ApiResponse = {
-      success: true,
-      data: result
-    };
+      const response: ApiResponse = {
+        success: true,
+        data: result
+      };
 
-    res.status(201).json(response);
-  } catch (error: any) {
-    console.error('Register error:', error);
-    res.status(error.status || 500).json({
-      success: false,
-      error: {
-        code: error.code || 'REGISTRATION_FAILED',
-        message: error.message || 'Registration failed'
-      }
-    });
+      res.status(201).json(response);
+    } catch (error: any) {
+      console.error('Register error:', error);
+      res.status(error.status || 500).json({
+        success: false,
+        error: {
+          code: error.code || 'REGISTRATION_FAILED',
+          message: error.message || 'Registration failed'
+        }
+      });
+    }
   }
-});
+);
 
 /**
  * @openapi
@@ -81,26 +103,68 @@ router.post('/register', async (req, res) => {
  *         description: OK
  */
 // Login user
-router.post('/login', async (req, res) => {
+router.post(
+  '/login',
+  [
+    body('username').isString().trim().notEmpty().withMessage('Username is required'),
+    body('password').isString().notEmpty().withMessage('Password is required')
+  ],
+  validateRequest,
+  async (req: Request, res: Response) => {
+    try {
+      const result = await authService.login(req.body, {
+        ipAddress: req.ip || 'unknown',
+        userAgent: req.headers['user-agent'] || 'unknown'
+      });
+
+      const response: ApiResponse = {
+        success: true,
+        data: result
+      };
+
+      res.json(response);
+    } catch (error: any) {
+      console.error('Login error:', error);
+      res.status(error.status || 500).json({
+        success: false,
+        error: {
+          code: error.code || 'LOGIN_FAILED',
+          message: error.message || 'Login failed'
+        }
+      });
+    }
+  }
+);
+
+// Get current authenticated user
+router.get('/me', requireAuth, async (req: Request, res: Response) => {
   try {
-    const result = await authService.login(req.body, {
-      ipAddress: req.ip || 'unknown',
-      userAgent: req.headers['user-agent'] || 'unknown'
-    });
+    if (!req.user?.userId) {
+      res.status(401).json({
+        success: false,
+        error: {
+          code: 'UNAUTHORIZED',
+          message: 'Authentication required'
+        }
+      });
+      return;
+    }
+
+    const user = await authService.getCurrentUser(req.user.userId);
 
     const response: ApiResponse = {
       success: true,
-      data: result
+      data: user
     };
 
     res.json(response);
   } catch (error: any) {
-    console.error('Login error:', error);
+    console.error('Get current user error:', error);
     res.status(error.status || 500).json({
       success: false,
       error: {
-        code: error.code || 'LOGIN_FAILED',
-        message: error.message || 'Login failed'
+        code: error.code || 'USER_FETCH_FAILED',
+        message: error.message || 'Failed to fetch current user'
       }
     });
   }
@@ -126,31 +190,36 @@ router.post('/login', async (req, res) => {
  *         description: OK
  */
 // Refresh access token
-router.post('/refresh', async (req, res) => {
-  try {
-    const body = req.body;
-    const result = await authService.refreshToken(body.refreshToken, {
-      ipAddress: req.ip || 'unknown',
-      userAgent: req.headers['user-agent'] || 'unknown'
-    });
+router.post(
+  '/refresh',
+  [body('refreshToken').isString().notEmpty().withMessage('Refresh token is required')],
+  validateRequest,
+  async (req: Request, res: Response) => {
+    try {
+      const body = req.body;
+      const result = await authService.refreshToken(body.refreshToken, {
+        ipAddress: req.ip || 'unknown',
+        userAgent: req.headers['user-agent'] || 'unknown'
+      });
 
-    const response: ApiResponse = {
-      success: true,
-      data: result
-    };
+      const response: ApiResponse = {
+        success: true,
+        data: result
+      };
 
-    res.json(response);
-  } catch (error: any) {
-    console.error('Refresh token error:', error);
-    res.status(error.status || 500).json({
-      success: false,
-      error: {
-        code: error.code || 'REFRESH_FAILED',
-        message: error.message || 'Token refresh failed'
-      }
-    });
+      res.json(response);
+    } catch (error: any) {
+      console.error('Refresh token error:', error);
+      res.status(error.status || 500).json({
+        success: false,
+        error: {
+          code: error.code || 'REFRESH_FAILED',
+          message: error.message || 'Token refresh failed'
+        }
+      });
+    }
   }
-});
+);
 
 /**
  * @openapi
@@ -172,21 +241,46 @@ router.post('/refresh', async (req, res) => {
  *         description: OK
  */
 // Logout user
-router.post('/logout', async (req, res) => {
-  try {
-    const body = req.body;
-    await authService.logout(body.refreshToken);
+router.post(
+  '/logout',
+  body('refreshToken').isString().notEmpty().withMessage('Refresh token is required'),
+  validateRequest,
+  async (req: Request, res: Response) => {
+    try {
+      const body = req.body;
+      let userId: string | undefined;
 
-    const response: ApiResponse = {
-      success: true,
-      message: 'Logged out successfully'
-    };
+      const authHeader = req.headers.authorization;
+      if (authHeader?.startsWith('Bearer ')) {
+        try {
+          const token = authHeader.substring(7).trim();
+          const decoded = TokenUtil.verifyAccessToken(token);
+          userId = decoded.sub;
+        } catch {
+          // Ignore token parsing errors during logout
+        }
+      }
 
-    res.json(response);
-  } catch (error) {
-    throw error;
+      await authService.logout(body.refreshToken, userId);
+
+      const response: ApiResponse = {
+        success: true,
+        message: 'Logged out successfully'
+      };
+
+      res.json(response);
+    } catch (error: any) {
+      console.error('Logout error:', error);
+      res.status(error.status || 500).json({
+        success: false,
+        error: {
+          code: error.code || 'LOGOUT_FAILED',
+          message: error.message || 'Logout failed'
+        }
+      });
+    }
   }
-});
+);
 
 /**
  * @openapi
@@ -208,7 +302,7 @@ router.post('/logout', async (req, res) => {
  *         description: OK
  */
 // Request password reset
-router.post('/forgot-password', async (req, res) => {
+router.post('/forgot-password', async (req: Request, res: Response) => {
   try {
     const result = await authService.requestPasswordReset(req.body, {
       ipAddress: req.ip || 'unknown',
@@ -247,7 +341,7 @@ router.post('/forgot-password', async (req, res) => {
  *         description: OK
  */
 // Reset password
-router.post('/reset-password', async (req, res) => {
+router.post('/reset-password', async (req: Request, res: Response) => {
   try {
     const result = await authService.resetPassword(req.body, {
       ipAddress: req.ip || 'unknown',

@@ -3,6 +3,9 @@ import ReactDOM from 'react-dom/client';
 import { createBrowserRouter, RouterProvider, Navigate } from 'react-router-dom';
 import './index.css';
 import { ThemeProvider } from './contexts/ThemeContext';
+import { AuthProvider } from './hooks/useAuth';
+import { RequireAuth } from './components/RequireAuth';
+import { RedirectIfAuthenticated } from './components/RedirectIfAuthenticated';
 import { AppLayout } from './ui/AppLayout';
 import { HomePage } from './pages/HomePage';
 import { LoginPage } from './pages/LoginPage';
@@ -17,11 +20,13 @@ import { LogsPage } from './pages/LogsPage';
 const router = createBrowserRouter([
   {
     path: '/',
-    element: <AppLayout />,
+    element: (
+      <RequireAuth>
+        <AppLayout />
+      </RequireAuth>
+    ),
     children: [
       { index: true, element: <HomePage /> },
-      { path: 'login', element: <LoginPage /> },
-      { path: 'signup', element: <SignupPage /> },
       { path: 'profile', element: <ProfilePage /> },
       { path: 'settings', element: <SettingsPage /> },
       { path: 'admin/import', element: <AdminImportPage /> },
@@ -31,15 +36,31 @@ const router = createBrowserRouter([
       // Backward compatibility after merging pages: redirect old path
       { path: 'manual-entry', element: <Navigate to="/" replace /> }
     ]
+  },
+  {
+    path: '/login',
+    element: (
+      <RedirectIfAuthenticated>
+        <LoginPage />
+      </RedirectIfAuthenticated>
+    )
+  },
+  {
+    path: '/signup',
+    element: (
+      <RedirectIfAuthenticated>
+        <SignupPage />
+      </RedirectIfAuthenticated>
+    )
   }
 ]);
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <ThemeProvider>
-      <RouterProvider router={router} />
+      <AuthProvider>
+        <RouterProvider router={router} />
+      </AuthProvider>
     </ThemeProvider>
   </React.StrictMode>
 );
-
-

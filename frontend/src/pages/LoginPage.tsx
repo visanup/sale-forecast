@@ -2,7 +2,7 @@ import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Link, useNavigate } from 'react-router-dom';
-import { authApi, setTokens } from '../services/api';
+import { useAuth } from '../hooks/useAuth';
 import { Mail, Lock, ArrowRight, LogIn, Shield, Zap, BarChart3 } from 'lucide-react';
 
 const schema = z.object({
@@ -14,12 +14,11 @@ type FormValues = z.infer<typeof schema>;
 export function LoginPage() {
   const { register, handleSubmit, formState: { errors, isSubmitting }, setError } = useForm<FormValues>({ resolver: zodResolver(schema) });
   const navigate = useNavigate();
+  const { login } = useAuth();
 
   async function onSubmit(values: FormValues) {
     try {
-      const res = await authApi.login({ username: values.email, password: values.password });
-      const data: any = (res as any).data || res;
-      if (data?.accessToken) setTokens({ accessToken: data.accessToken, refreshToken: data.refreshToken });
+      await login(values.email, values.password);
       navigate('/');
     } catch (e: any) {
       setError('root', { message: e.message || 'Login failed' });
@@ -179,5 +178,4 @@ export function LoginPage() {
     </div>
   );
 }
-
 

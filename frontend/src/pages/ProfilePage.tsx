@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { 
   User, 
   Mail, 
@@ -12,21 +12,66 @@ import {
   Shield,
   Award,
   Activity,
-  X                   // ✅ เพิ่มตัวนี้
+  X
 } from 'lucide-react';
+import { authApi } from '../services/api';
+import { useAuth } from '../hooks/useAuth';
 
 export function ProfilePage() {
+  const { user, setUser } = useAuth();
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [firstName, setFirstName] = useState(user?.firstName ?? '');
+  const [lastName, setLastName] = useState(user?.lastName ?? '');
+
+  useEffect(() => {
+    setFirstName(user?.firstName ?? '');
+    setLastName(user?.lastName ?? '');
+  }, [user?.firstName, user?.lastName]);
+
+  const displayName = useMemo(() => {
+    if (firstName) return firstName;
+    if (user?.firstName) return user.firstName;
+    if (user?.username) return user.username;
+    if (user?.email) return user.email.split('@')[0]!;
+    return 'Your Name';
+  }, [firstName, user?.firstName, user?.username, user?.email]);
+
+  const initials = useMemo(() => {
+    const source = (firstName || user?.firstName || user?.username || user?.email || 'User')
+      .trim()
+      .split(/[\s._-]+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map(part => part.charAt(0).toUpperCase())
+      .join('');
+    return source || 'U';
+  }, [firstName, user?.firstName, user?.username, user?.email]);
+
+  const primaryEmail = user?.email || 'you@example.com';
 
   const handleSave = async () => {
     setIsSaving(true);
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    setIsSaving(false);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 3000);
+    setErrorMessage(null);
+    try {
+      const response = await authApi.updateProfile({
+        firstName: firstName || undefined,
+        lastName: lastName || undefined
+      });
+      const updatedUser = (response as any)?.data ?? response;
+      if (updatedUser) {
+        setUser(updatedUser);
+        setIsEditing(false);
+        setSaved(true);
+        setTimeout(() => setSaved(false), 3000);
+      }
+    } catch (error: any) {
+      setErrorMessage(error?.message || 'Failed to update profile');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -58,14 +103,14 @@ export function ProfilePage() {
               <div className="text-center mb-8">
                 <div className="relative inline-block group">
                   <div className="w-32 h-32 bg-gradient-to-br from-purple-500 via-pink-500 to-indigo-500 rounded-full flex items-center justify-center text-white text-3xl font-bold mb-6 mx-auto shadow-2xl ring-4 ring-white/20 dark:ring-gray-700/20 group-hover:scale-105 transition-transform duration-300">
-                    DU
+                    {initials}
                   </div>
                   <button className="absolute -bottom-1 -right-1 w-10 h-10 bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white rounded-full flex items-center justify-center transition-all duration-300 shadow-lg hover:shadow-xl hover:scale-110">
                     <Camera className="w-5 h-5" />
                   </button>
                 </div>
-                <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Demo User</h3>
-                <p className="text-gray-600 dark:text-gray-400 text-lg">demo@example.com</p>
+                <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">{displayName}</h3>
+                <p className="text-gray-600 dark:text-gray-400 text-lg">{primaryEmail}</p>
                 <div className="mt-4 inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20 rounded-full border border-green-200 dark:border-green-800">
                   <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
                   <span className="text-sm font-medium text-green-700 dark:text-green-300">Online</span>
@@ -119,8 +164,16 @@ export function ProfilePage() {
                     <p className="text-gray-600 dark:text-gray-400 text-lg">Update your personal details and preferences</p>
                   </div>
                 </div>
-                <button 
-                  onClick={() => setIsEditing(!isEditing)}
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (isEditing) {
+                      setFirstName(user?.firstName ?? '');
+                      setLastName(user?.lastName ?? '');
+                      setErrorMessage(null);
+                    }
+                    setIsEditing(!isEditing);
+                  }}
                   className={`flex items-center gap-3 px-6 py-3 text-sm font-semibold rounded-xl transition-all duration-300 transform hover:scale-105 ${
                     isEditing 
                       ? 'bg-gradient-to-r from-red-500 to-pink-500 hover:from-red-600 hover:to-pink-600 text-white shadow-lg hover:shadow-xl' 
@@ -133,6 +186,11 @@ export function ProfilePage() {
               </div>
 
               <form className="space-y-8">
+                {errorMessage && (
+                  <div className="rounded-2xl border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 p-4 text-sm text-red-600 dark:text-red-300 shadow-sm">
+                    {errorMessage}
+                  </div>
+                )}
                 <div className="grid sm:grid-cols-2 gap-6">
                   <div className="group">
                     <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">First Name</label>
@@ -140,13 +198,14 @@ export function ProfilePage() {
                       <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
                         <User className="w-5 h-5 text-gray-400 group-focus-within:text-blue-500 transition-colors" />
                       </div>
-                      <input 
+                      <input
                         className={`w-full pl-12 pr-4 py-4 border-2 rounded-2xl bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all duration-300 shadow-sm hover:shadow-md ${
                           isEditing 
                             ? 'border-gray-300 dark:border-gray-600 hover:border-blue-400' 
                             : 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800'
                         }`}
-                        defaultValue="Demo"
+                        value={firstName}
+                        onChange={e => setFirstName(e.target.value)}
                         disabled={!isEditing}
                       />
                     </div>
@@ -157,13 +216,14 @@ export function ProfilePage() {
                       <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
                         <User className="w-5 h-5 text-gray-400 group-focus-within:text-blue-500 transition-colors" />
                       </div>
-                      <input 
+                      <input
                         className={`w-full pl-12 pr-4 py-4 border-2 rounded-2xl bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all duration-300 shadow-sm hover:shadow-md ${
                           isEditing 
                             ? 'border-gray-300 dark:border-gray-600 hover:border-blue-400' 
                             : 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800'
                         }`}
-                        defaultValue="User"
+                        value={lastName}
+                        onChange={e => setLastName(e.target.value)}
                         disabled={!isEditing}
                       />
                     </div>
@@ -176,15 +236,14 @@ export function ProfilePage() {
                     <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
                       <Mail className="w-5 h-5 text-gray-400 group-focus-within:text-blue-500 transition-colors" />
                     </div>
-                    <input 
+                    <input
                       className={`w-full pl-12 pr-4 py-4 border-2 rounded-2xl bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all duration-300 shadow-sm hover:shadow-md ${
-                        isEditing 
-                          ? 'border-gray-300 dark:border-gray-600 hover:border-blue-400' 
-                          : 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800'
+                        'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800'
                       }`}
                       type="email"
-                      defaultValue="demo@example.com"
-                      disabled={!isEditing}
+                      value={primaryEmail}
+                      disabled
+                      readOnly
                     />
                   </div>
                 </div>

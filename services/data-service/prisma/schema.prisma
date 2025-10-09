@@ -1,5 +1,6 @@
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-1.1.x", "debian-openssl-3.0.x"]
 }
 
 datasource db {
@@ -111,5 +112,3 @@ model fact_forecast {
   @@index([sku_id], map: "idx_fact_forecast_sku")
   @@map("fact_forecast")
 }
-
-

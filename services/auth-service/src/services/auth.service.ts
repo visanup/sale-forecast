@@ -2,7 +2,7 @@ import { PrismaClient } from '@prisma/client';
 import { PasswordUtil } from '../utils/password.util';
 import { TokenUtil } from '../utils/token.util';
 import { AuditService } from './audit.service';
-import { InvalidCredentialsError, UserAlreadyExistsError } from '../utils/errors';
+import { InvalidCredentialsError, UserAlreadyExistsError, ValidationError } from '../utils/errors';
 import { 
   LoginCredentials, 
   RegisterData, 
@@ -11,7 +11,8 @@ import {
   TokenPayload,
   PasswordResetRequest,
   PasswordResetData,
-  DeviceInfo
+  DeviceInfo,
+  UserUpdateData
 } from '../types/auth.types';
 
 export class AuthService {
@@ -27,7 +28,7 @@ export class AuthService {
     // Validate password strength
     const passwordValidation = PasswordUtil.validatePassword(data.password);
     if (!passwordValidation.isValid) {
-      throw new Error(`Password validation failed: ${passwordValidation.errors.join(', ')}`);
+      throw new ValidationError(`Password validation failed: ${passwordValidation.errors.join(', ')}`);
     }
 
     // Check if user already exists
@@ -135,13 +136,13 @@ export class AuthService {
     }
 
     // Generate tokens
-    const tokenPayload: Omit<TokenPayload, 'iat' | 'exp'> = {
+    const tokenFamily = TokenUtil.generateTokenFamily();
+    const tokenPayload: Omit<TokenPayload, 'iat' | 'exp' | 'type'> = {
       sub: user.id,
       email: user.email,
       username: user.username,
       roles: user.roles.map((ur: any) => ur.role.name),
-      jti: TokenUtil.generateTokenFamily(),
-      type: 'access' as const
+      jti: tokenFamily
     };
 
     const accessToken = TokenUtil.generateAccessToken(tokenPayload);
@@ -151,7 +152,7 @@ export class AuthService {
     const refreshTokenData: any = {
       userId: user.id,
       token: refreshToken,
-      family: tokenPayload.jti,
+      family: tokenFamily,
       ipAddress: deviceInfo?.ipAddress || 'unknown',
       userAgent: deviceInfo?.userAgent || 'unknown',
       expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7 days
@@ -234,13 +235,13 @@ export class AuthService {
     });
 
     // Generate new tokens
-    const newTokenPayload: Omit<TokenPayload, 'iat' | 'exp'> = {
+    const newTokenFamily = TokenUtil.generateTokenFamily();
+    const newTokenPayload: Omit<TokenPayload, 'iat' | 'exp' | 'type'> = {
       sub: storedToken.user.id,
       email: storedToken.user.email,
       username: storedToken.user.username,
       roles: storedToken.user.roles.map((ur: any) => ur.role.name),
-      jti: TokenUtil.generateTokenFamily(),
-      type: 'access' as const
+      jti: newTokenFamily
     };
 
     const newAccessToken = TokenUtil.generateAccessToken(newTokenPayload);
@@ -250,7 +251,7 @@ export class AuthService {
     const newRefreshTokenData: any = {
       userId: storedToken.user.id,
       token: newRefreshToken,
-      family: newTokenPayload.jti,
+      family: newTokenFamily,
       ipAddress: deviceInfo?.ipAddress || 'unknown',
       userAgent: deviceInfo?.userAgent || 'unknown',
       expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7 days
@@ -418,6 +419,47 @@ export class AuthService {
     if (!user) {
       throw new Error('USER_NOT_FOUND');
     }
+
+    return this.mapUserToResponse(user);
+  }
+
+  /**
+   * Update basic profile fields
+   */
+  async updateProfile(userId: string, data: UserUpdateData, deviceInfo?: DeviceInfo): Promise<User> {
+    const updateData: Record<string, any> = {};
+
+    if (data.firstName !== undefined) {
+      updateData['firstName'] = data.firstName;
+    }
+    if (data.lastName !== undefined) {
+      updateData['lastName'] = data.lastName;
+    }
+
+    if (Object.keys(updateData).length === 0) {
+      return this.getCurrentUser(userId);
+    }
+
+    const user = await this.prisma.user.update({
+      where: { id: userId },
+      data: updateData,
+      include: {
+        roles: {
+          include: {
+            role: true
+          }
+        }
+      }
+    });
+
+    await this.auditService.log({
+      action: 'USER_PROFILE_UPDATED',
+      resource: 'User',
+      resourceId: user.id,
+      details: updateData,
+      ipAddress: deviceInfo?.ipAddress || 'unknown',
+      userAgent: deviceInfo?.userAgent || 'unknown'
+    });
 
     return this.mapUserToResponse(user);
   }

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { api } from '../services/api';
+import { api, buildAuthUrl, serviceBases } from '../services/api';
 import { 
   Code, 
   Key, 
@@ -29,19 +29,19 @@ type Service = {
 const services: Service[] = [
   { 
     name: 'Data Service', 
-    url: (import.meta.env.VITE_DATA_URL || 'http://localhost:6603') + '/openapi.json',
+    url: `${serviceBases.data}/openapi.json`,
     description: 'Access forecast data and price information',
     endpoints: ['/v1/forecast', '/v1/prices']
   },
   { 
     name: 'Ingest Service', 
-    url: (import.meta.env.VITE_INGEST_URL || 'http://localhost:6602') + '/openapi.json',
+    url: `${serviceBases.ingest}/openapi.json`,
     description: 'Upload Excel files and manual data entry',
     endpoints: ['/v1/upload', '/v1/manual']
   },
   { 
     name: 'Dim Service', 
-    url: (import.meta.env.VITE_DIM_URL || 'http://localhost:6604') + '/openapi.json',
+    url: `${serviceBases.dim}/openapi.json`,
     description: 'Access dimension data (companies, materials, etc.)',
     endpoints: ['/v1/dim/companies', '/v1/dim/materials', '/v1/dim/depts', '/v1/dim/distribution-channels']
   }
@@ -149,7 +149,7 @@ export function ApiPortalPage() {
         return;
       }
       
-      const response = await fetch('http://localhost:6601/api/v1/api-keys/clients', {
+      const response = await fetch(buildAuthUrl('/api/v1/api-keys/clients'), {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -552,4 +552,3 @@ export function ApiPortalPage() {
     </div>
   );
 }
-
