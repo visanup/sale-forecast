@@ -1,5 +1,5 @@
 import { Outlet, Link, NavLink } from 'react-router-dom';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { 
   Bell, 
   CircleUserRound, 
@@ -21,6 +21,39 @@ import { useAuth } from '../hooks/useAuth';
 
 export function AppLayout() {
   const [open, setOpen] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const notificationsRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (
+        notificationsRef.current &&
+        !notificationsRef.current.contains(event.target as Node)
+      ) {
+        setNotificationsOpen(false);
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const notifications = [
+    {
+      id: 'forecast-status',
+      title: 'Latest Forecast Run',
+      description: 'The daily forecast finished successfully.',
+      timestamp: '2h ago',
+    },
+    {
+      id: 'system-health',
+      title: 'System Health',
+      description: 'No issues detected across environments.',
+      timestamp: '6h ago',
+    },
+  ];
+
+  const hasUnreadNotifications = notifications.length > 0;
   const { isAuthenticated, user, logout } = useAuth();
 
   const handleLogout = async () => {
@@ -61,13 +94,60 @@ export function AppLayout() {
 
             {isAuthenticated ? (
               <>
-                <button
-                  className="relative rounded-full p-2 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-                  aria-label="Notifications"
-                >
-                  <Bell size={20} className="text-gray-700 dark:text-gray-300" />
-                  <span className="absolute -top-0.5 -right-0.5 inline-flex h-2.5 w-2.5 rounded-full bg-red-500"></span>
-                </button>
+                <div className="relative" ref={notificationsRef}>
+                  <button
+                    type="button"
+                    className="relative rounded-full p-2 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+                    aria-label="Notifications"
+                    aria-expanded={notificationsOpen}
+                    onClick={() => setNotificationsOpen((prev) => !prev)}
+                  >
+                    <Bell size={20} className="text-gray-700 dark:text-gray-300" />
+                    {hasUnreadNotifications && (
+                      <span className="absolute -top-0.5 -right-0.5 inline-flex h-2.5 w-2.5 rounded-full bg-red-500"></span>
+                    )}
+                  </button>
+                  {notificationsOpen && (
+                    <div className="absolute right-0 mt-3 w-80 rounded-2xl border border-gray-200 bg-white p-3 shadow-2xl dark:border-gray-700 dark:bg-gray-900">
+                      <div className="flex items-center justify-between px-2 pb-2">
+                        <p className="text-sm font-semibold text-gray-900 dark:text-white">
+                          Notifications
+                        </p>
+                        <button
+                          type="button"
+                          className="text-xs font-medium text-brand-600 hover:text-brand-500"
+                          onClick={() => setNotificationsOpen(false)}
+                        >
+                          Close
+                        </button>
+                      </div>
+                      <div className="space-y-2 max-h-64 overflow-auto pr-1">
+                        {notifications.length === 0 ? (
+                          <div className="rounded-xl bg-gray-50 p-3 text-sm text-gray-500 dark:bg-gray-800/80 dark:text-gray-300">
+                            No new notifications right now.
+                          </div>
+                        ) : (
+                          notifications.map((notification) => (
+                            <div
+                              key={notification.id}
+                              className="rounded-xl border border-transparent bg-gray-50 p-3 text-sm text-gray-700 transition hover:border-brand-200 hover:bg-brand-50/60 dark:bg-gray-800/70 dark:text-gray-200 dark:hover:border-brand-400/40"
+                            >
+                              <p className="font-medium text-gray-900 dark:text-white">
+                                {notification.title}
+                              </p>
+                              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                                {notification.description}
+                              </p>
+                              <p className="mt-2 text-[11px] uppercase tracking-wide text-gray-400 dark:text-gray-500">
+                                {notification.timestamp}
+                              </p>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
 
                 <div className="relative">
                   <details>

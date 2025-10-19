@@ -29,6 +29,71 @@ interface LogStats {
   lastEntry: any;
 }
 
+type UploaderInfo = {
+  id?: string;
+  username?: string;
+};
+
+const NESTED_USER_KEYS = ['uploadedBy', 'uploader', 'user', 'actor', 'owner', 'creator'];
+const ID_KEYS = ['userId', 'id', 'uploadedById', 'uploaderId', 'ownerId', 'actorId'];
+const USERNAME_KEYS = ['username', 'userName', 'email', 'actorUsername'];
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function toDisplayString(value: unknown): string | undefined {
+  if (value === null || value === undefined) return undefined;
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  return undefined;
+}
+
+function extractUploaderInfo(data: unknown): UploaderInfo {
+  const info: UploaderInfo = {};
+  if (!isRecord(data)) return info;
+
+  const queue: Record<string, unknown>[] = [data];
+
+  while (queue.length && (!info.id || !info.username)) {
+    const current = queue.shift()!;
+    for (const [key, value] of Object.entries(current)) {
+      if (value === null || value === undefined) continue;
+
+      if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+        if (!info.id && ID_KEYS.includes(key)) {
+          info.id = String(value);
+        }
+        if (!info.username && USERNAME_KEYS.includes(key)) {
+          info.username = String(value);
+        }
+      } else if (isRecord(value)) {
+        if (NESTED_USER_KEYS.includes(key)) {
+          const nestedId =
+            toDisplayString(value['id']) ||
+            toDisplayString(value['userId']) ||
+            toDisplayString(value['uid']);
+          if (!info.id && nestedId) {
+            info.id = nestedId;
+          }
+
+          const nestedUsername =
+            toDisplayString(value['username']) ||
+            toDisplayString(value['userName']) ||
+            toDisplayString(value['email']) ||
+            toDisplayString(value['name']);
+          if (!info.username && nestedUsername) {
+            info.username = nestedUsername;
+          }
+        }
+        queue.push(value);
+      }
+    }
+  }
+
+  return info;
+}
+
 export function LogsPage() {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [stats, setStats] = useState<LogStats | null>(null);
@@ -293,50 +358,77 @@ export function LogsPage() {
           </div>
         ) : (
           <div className="space-y-2">
-            {logs.map((log) => (
-              <div
-                key={log.id}
-                className={`border rounded-xl p-4 ${getLevelColor(log.level)}`}
-              >
-                <div className="flex items-start gap-3">
-                  {getLevelIcon(log.level)}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="font-mono text-xs text-gray-500 dark:text-gray-400">
-                        {new Date(log.timestamp).toLocaleString()}
-                      </span>
-                      <span className="px-2 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-xs font-medium text-gray-700 dark:text-gray-300">
-                        {log.service}
-                      </span>
-                      <span className="px-2 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
-                        {log.level}
-                      </span>
-                      {log.requestId && (
+            {logs.map((log) => {
+              const uploaderInfo = extractUploaderInfo(log.data);
+              const hasUploaderInfo = Boolean(uploaderInfo.id || uploaderInfo.username);
+              const hasData = Array.isArray(log.data)
+                ? log.data.length > 0
+                : isRecord(log.data)
+                  ? Object.keys(log.data).length > 0
+                  : log.data !== undefined && log.data !== null && String(log.data).length > 0;
+
+              return (
+                <div
+                  key={log.id}
+                  className={`border rounded-xl p-4 ${getLevelColor(log.level)}`}
+                >
+                  <div className="flex items-start gap-3">
+                    {getLevelIcon(log.level)}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
                         <span className="font-mono text-xs text-gray-500 dark:text-gray-400">
-                          {log.requestId}
+                          {new Date(log.timestamp).toLocaleString()}
                         </span>
+                        <span className="px-2 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-xs font-medium text-gray-700 dark:text-gray-300">
+                          {log.service}
+                        </span>
+                        <span className="px-2 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
+                          {log.level}
+                        </span>
+                        {log.requestId && (
+                          <span className="font-mono text-xs text-gray-500 dark:text-gray-400">
+                            {log.requestId}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-gray-900 dark:text-white">{log.message}</p>
+                      {hasData && (
+                        <details className="mt-2">
+                          <summary className="cursor-pointer text-sm text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200">
+                            Show data
+                          </summary>
+                          <div className="mt-2 space-y-2">
+                            {hasUploaderInfo && (
+                              <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white/70 dark:bg-gray-900/40 px-3 py-2 text-xs text-gray-700 dark:text-gray-200">
+                                {uploaderInfo.id && (
+                                  <div>
+                                    <span className="font-semibold text-gray-900 dark:text-white">Uploader ID:</span>{' '}
+                                    {uploaderInfo.id}
+                                  </div>
+                                )}
+                                {uploaderInfo.username && (
+                                  <div>
+                                    <span className="font-semibold text-gray-900 dark:text-white">Username:</span>{' '}
+                                    {uploaderInfo.username}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                            <pre className="p-3 bg-gray-100 dark:bg-gray-900 rounded-lg text-xs overflow-x-auto">
+                              {JSON.stringify(log.data, null, 2)}
+                            </pre>
+                          </div>
+                        </details>
                       )}
                     </div>
-                    <p className="text-gray-900 dark:text-white">{log.message}</p>
-                    {log.data && Object.keys(log.data).length > 0 && (
-                      <details className="mt-2">
-                        <summary className="cursor-pointer text-sm text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200">
-                          Show data
-                        </summary>
-                        <pre className="mt-2 p-3 bg-gray-100 dark:bg-gray-900 rounded-lg text-xs overflow-x-auto">
-                          {JSON.stringify(log.data, null, 2)}
-                        </pre>
-                      </details>
-                    )}
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
     </div>
   );
 }
-
 
