@@ -13,12 +13,21 @@ const stripTrailingSlash = (value: string): string => {
   return value.replace(/\/+$/, '');
 };
 
-const buildClientBase = (port: number): string => {
-  if (typeof window === 'undefined') {
-    return `http://localhost:${port}`;
-  }
+const getPreferredProtocol = (value?: string): string => {
+  const fallback = (() => {
+    if (typeof window !== 'undefined' && window.location?.protocol) {
+      return window.location.protocol;
+    }
+    return 'http:';
+  })();
 
-  const { protocol, hostname } = window.location;
+  const candidate = value && value.trim().length > 0 ? value.trim() : fallback;
+  return candidate.endsWith(':') ? candidate : `${candidate}:`;
+};
+
+const buildClientBase = (port: number, protocolOverride?: string): string => {
+  const protocol = getPreferredProtocol(protocolOverride);
+  const hostname = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
   return `${protocol}//${hostname}${port ? `:${port}` : ''}`;
 };
 
@@ -37,7 +46,7 @@ const resolveServiceBase = (rawValue: string | undefined, fallbackPort: number):
       return stripTrailingSlash(`${parsed.protocol}//${parsed.host}${normalizedSuffix}`);
     }
 
-    return stripTrailingSlash(`${buildClientBase(targetPort)}${normalizedSuffix}`);
+    return stripTrailingSlash(`${buildClientBase(targetPort, parsed.protocol)}${normalizedSuffix}`);
   } catch {
     return stripTrailingSlash(rawValue);
   }
@@ -250,21 +259,145 @@ export const dataApi = {
   async forecastList(params: Record<string, string>) {
     const sp = new URLSearchParams(params).toString();
     return http<{ data: any[] }>(`${DATA_BASE}/v1/forecast?${sp}`, { headers: { 'x-api-key': DATA_API_KEY } });
+  },
+  async salesForecastHistory(params: {
+    anchor_month: string;
+    company_code?: string;
+    company_desc?: string;
+    material_code?: string;
+    material_desc?: string;
+  }) {
+    const sp = new URLSearchParams();
+    sp.set('anchor_month', params.anchor_month);
+    if (params.company_code) sp.set('company_code', params.company_code);
+    if (params.company_desc) sp.set('company_desc', params.company_desc);
+    if (params.material_code) sp.set('material_code', params.material_code);
+    if (params.material_desc) sp.set('material_desc', params.material_desc);
+
+    return http<{ data: SalesForecastRecord[] }>(`${DATA_BASE}/v1/saleforecast?${sp.toString()}`, {
+      headers: { 'x-api-key': DATA_API_KEY }
+    });
+  },
+  async salesForecastUpdate(
+    recordId: string,
+    payload: Partial<{
+      anchor_month: string;
+      company_code: string | null;
+      company_desc: string | null;
+      material_code: string | null;
+      material_desc: string | null;
+      forecast_qty: number | null;
+      metadata: SalesForecastMetadata | null;
+    }>
+  ) {
+    const body: Record<string, unknown> = {};
+    if (payload.anchor_month !== undefined) body['anchor_month'] = payload.anchor_month;
+    if (payload.company_code !== undefined) body['company_code'] = payload.company_code;
+    if (payload.company_desc !== undefined) body['company_desc'] = payload.company_desc;
+    if (payload.material_code !== undefined) body['material_code'] = payload.material_code;
+    if (payload.material_desc !== undefined) body['material_desc'] = payload.material_desc;
+    if (payload.forecast_qty !== undefined) body['forecast_qty'] = payload.forecast_qty;
+    if (payload.metadata !== undefined) body['metadata'] = payload.metadata ?? null;
+
+    return http<{ data: SalesForecastRecord }>(`${DATA_BASE}/v1/saleforecast/${recordId}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': DATA_API_KEY
+      },
+      body: JSON.stringify(body)
+    });
+  },
+  async salesForecastDelete(recordId: string) {
+    return http<{ data: SalesForecastRecord }>(`${DATA_BASE}/v1/saleforecast/${recordId}`, {
+      method: 'DELETE',
+      headers: { 'x-api-key': DATA_API_KEY }
+    });
   }
 };
 
+export type SalesForecastMonthsEntry = {
+  month: string;
+  qty: number;
+  price?: number;
+};
+
+export type SalesForecastMetadata = {
+  version?: number;
+  source?: string;
+  run_id?: string;
+  months?: SalesForecastMonthsEntry[];
+  price?: number | string;
+  unit_price?: number | string;
+  unit_price_snapshot?: number | string;
+  dept_code?: string | null;
+  dc_code?: string | null;
+  division?: string | null;
+  sales_organization?: string | null;
+  sales_office?: string | null;
+  sales_group?: string | null;
+  sales_representative?: string | null;
+  pack_size?: string | null;
+  uom_code?: string | null;
+  fact_rows_inserted?: number;
+  dim_ids?: Record<string, string | null | undefined>;
+  [key: string]: unknown;
+};
+
+export type SalesForecastRecord = {
+  id: string;
+  anchor_month: string;
+  company_code: string | null;
+  company_desc: string | null;
+  material_code: string | null;
+  material_desc: string | null;
+  forecast_qty: number | null;
+  metadata: SalesForecastMetadata | null;
+  created_at: string;
+  updated_at: string;
+};
+
+type DimQueryParams = {
+  search?: string;
+  limit?: number;
+  cursor?: string;
+  signal?: AbortSignal;
+};
+
+function buildDimQuery(params?: DimQueryParams) {
+  if (!params) return '';
+  const sp = new URLSearchParams();
+  if (params.search) sp.set('q', params.search);
+  if (Number.isFinite(params.limit)) sp.set('limit', String(params.limit));
+  if (params.cursor) sp.set('cursor', params.cursor);
+  const qs = sp.toString();
+  return qs ? `?${qs}` : '';
+}
+
 export const dimApi = {
-  async companies() {
-    return http<{ data: any[] }>(`${DIM_BASE}/v1/dim/companies`, { headers: { 'x-api-key': DATA_API_KEY } });
+  async companies(params?: DimQueryParams) {
+    return http<{ data: any[] }>(`${DIM_BASE}/v1/dim/companies${buildDimQuery(params)}`, {
+      headers: { 'x-api-key': DATA_API_KEY },
+      signal: params?.signal
+    });
   },
-  async depts() {
-    return http<{ data: any[] }>(`${DIM_BASE}/v1/dim/depts`, { headers: { 'x-api-key': DATA_API_KEY } });
+  async depts(params?: DimQueryParams) {
+    return http<{ data: any[] }>(`${DIM_BASE}/v1/dim/depts${buildDimQuery(params)}`, {
+      headers: { 'x-api-key': DATA_API_KEY },
+      signal: params?.signal
+    });
   },
-  async distributionChannels() {
-    return http<{ data: any[] }>(`${DIM_BASE}/v1/dim/distribution-channels`, { headers: { 'x-api-key': DATA_API_KEY } });
+  async distributionChannels(params?: DimQueryParams) {
+    return http<{ data: any[] }>(`${DIM_BASE}/v1/dim/distribution-channels${buildDimQuery(params)}`, {
+      headers: { 'x-api-key': DATA_API_KEY },
+      signal: params?.signal
+    });
   },
-  async materials() {
-    return http<{ data: any[] }>(`${DIM_BASE}/v1/dim/materials`, { headers: { 'x-api-key': DATA_API_KEY } });
+  async materials(params?: DimQueryParams) {
+    return http<{ data: any[] }>(`${DIM_BASE}/v1/dim/materials${buildDimQuery(params)}`, {
+      headers: { 'x-api-key': DATA_API_KEY },
+      signal: params?.signal
+    });
   }
 };
 
@@ -273,7 +406,7 @@ export const ingestApi = {
     const fd = new FormData();
     fd.append('file', file);
     fd.append('anchorMonth', anchorMonth);
-    return http<{ runId: number }>(`${INGEST_BASE}/v1/upload`, {
+    return http<{ runId: number; insertedCount?: number }>(`${INGEST_BASE}/v1/upload`, {
       method: 'POST',
       headers: { 'x-api-key': INGEST_API_KEY },
       body: fd
@@ -283,8 +416,8 @@ export const ingestApi = {
     anchorMonth: string;
     lines: Array<{
       company_code: string;
-      dept_code?: string;
-      dc_code?: string;
+      dept_code: string;
+      dc_code: string;
       division?: string;
       sales_organization?: string;
       sales_office?: string;
@@ -292,8 +425,8 @@ export const ingestApi = {
       sales_representative?: string;
       material_code: string;
       material_desc?: string;
-      pack_size?: string;
-      uom_code?: string;
+      pack_size: string;
+      uom_code: string;
       n_2?: number;
       n_1?: number;
       n?: number;
@@ -301,15 +434,86 @@ export const ingestApi = {
       n2?: number;
       n3?: number;
       price?: number;
+      distributionChannels?: string;
     }>;
   }) {
+    const monthOffsets: Array<{ key: keyof (typeof payload)['lines'][number]; delta: number }> = [
+      { key: 'n_2', delta: -2 },
+      { key: 'n_1', delta: -1 },
+      { key: 'n', delta: 0 },
+      { key: 'n1', delta: 1 },
+      { key: 'n2', delta: 2 },
+      { key: 'n3', delta: 3 }
+    ];
+
+    const addMonth = (anchor: string, offset: number): string => {
+      const [yearStr, monthStr] = anchor.split('-');
+      const year = Number(yearStr);
+      const month = Number(monthStr);
+      if (!Number.isFinite(year) || !Number.isFinite(month)) {
+        return anchor;
+      }
+      const date = new Date(Date.UTC(year, month - 1 + offset, 1));
+      const yyyy = date.getUTCFullYear();
+      const mm = String(date.getUTCMonth() + 1).padStart(2, '0');
+      return `${yyyy}-${mm}`;
+    };
+
+    const requiredFields: Array<
+      keyof Omit<
+        (typeof payload)['lines'][number],
+        'n_2' | 'n_1' | 'n' | 'n1' | 'n2' | 'n3' | 'price' | 'distributionChannels' | 'material_desc'
+      >
+    > = ['company_code', 'dept_code', 'dc_code', 'material_code', 'pack_size', 'uom_code'];
+
+    const normalizedLines = payload.lines.map((line, index) => {
+      const { n_2, n_1, n, n1, n2, n3, price, distributionChannels: _distributionChannels, ...rest } = line;
+      const months = monthOffsets.reduce<Array<{ month: string; qty: number; price?: number }>>((acc, entry) => {
+        const value = line[entry.key];
+        if (value === undefined || value === null) {
+          return acc;
+        }
+        const numeric = Number(value);
+        if (!Number.isFinite(numeric)) {
+          return acc;
+        }
+        const monthEntry: { month: string; qty: number; price?: number } = {
+          month: addMonth(payload.anchorMonth, entry.delta),
+          qty: numeric
+        };
+        if (price !== undefined && Number.isFinite(price)) {
+          monthEntry.price = Number(price);
+        }
+        acc.push(monthEntry);
+        return acc;
+      }, []);
+
+      const missing = requiredFields.filter((field) => {
+        const value = rest[field];
+        return value === undefined || value === null || value === '';
+      });
+      if (missing.length > 0) {
+        throw new Error(`Line #${index + 1} missing required fields: ${missing.join(', ')}`);
+      }
+      if (months.length === 0) {
+        throw new Error(`Line #${index + 1} requires at least one month quantity`);
+      }
+
+      return {
+        ...rest,
+        months
+      };
+    });
+
+    const body = JSON.stringify({ anchorMonth: payload.anchorMonth, lines: normalizedLines });
+
     return http<{ runId: number }>(`${INGEST_BASE}/v1/manual`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'x-api-key': INGEST_API_KEY
       },
-      body: JSON.stringify(payload)
+      body
     });
   }
 };

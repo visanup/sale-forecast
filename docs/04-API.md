@@ -113,6 +113,208 @@ Parameters:
   - run: latest|id
 ```
 
+### Sales Forecast Records
+```http
+GET /v1/saleforecast
+Parameters (query):
+  - anchor_month*: yyyy-MM
+  - company_code: string
+  - company_desc: string
+  - material_code: string
+  - material_desc: string
+
+Responses include a list of persisted sales-forecast snapshots. Records are created automatically whenever the ingest
+service (manual submission or Excel upload) processes a line, and the same store can be backfilled from historical
+`fact_forecast` data so the Preview History tab in the UI mirrors the values returned here.
+
+Example (API key):
+```bash
+curl -H "X-API-Key: your-api-key" \
+  "http://localhost:6603/v1/saleforecast?anchor_month=2025-03&company_code=1001&material_code=SKU-123"
+```
+
+```json
+{
+  "data": [
+    {
+      "id": "42",
+      "anchor_month": "2025-01",
+      "company_code": "1001",
+      "company_desc": "Betagro",
+      "material_code": "MAT-001",
+      "material_desc": "Frozen Chicken",
+      "forecast_qty": 1200.5,
+      "metadata": {
+        "version": 1,
+        "source": "upload",
+        "run_id": "45",
+        "months": [
+          { "month": "2024-11", "qty": 1100, "price": 88.5 },
+          { "month": "2024-12", "qty": 1150 }
+        ],
+        "dept_code": "D01",
+        "dc_code": "01",
+        "division": "Poultry",
+        "sales_organization": "TH01",
+        "sales_office": "BKK",
+        "sales_group": "NORTH",
+        "sales_representative": "emp-123",
+        "pack_size": "10 KG",
+        "uom_code": "KG",
+        "fact_rows_inserted": 6,
+        "dim_ids": {
+          "company_id": "12",
+          "dept_id": "8",
+          "sku_id": "874",
+          "sales_org_id": "53",
+          "dc_id": "17"
+        }
+      },
+      "created_at": "2025-10-18T04:35:12.120Z",
+      "updated_at": "2025-10-18T04:35:12.120Z"
+    }
+  ],
+  "paging": { "next": null }
+}
+```
+
+The `metadata` object is intentionally flexible, but the current producer (ingest service) emits:
+
+- `version`: schema version for forward compatibility.
+- `source`: `"upload"`, `"manual"`, or `"backfill"` (when generated from legacy `fact_forecast` rows).
+- `run_id`: ingest `forecast_run` identifier.
+- `months`: the month/quantity (and optional price) pairs derived from the uploaded sheet or manual entry.
+- Optional dimensional hints (`dept_code`, `dc_code`, `division`, `sales_*`) and product descriptors (`pack_size`, `uom_code`).
+- `fact_rows_inserted`: number of `fact_forecast` rows that were written for this line.
+- `dim_ids`: the dimension table identifiers that anchor the related fact data.
+
+POST /v1/saleforecast
+Body (json):
+{
+  "anchor_month": "yyyy-MM",
+  "company_code": "string",
+  "company_desc": "string",
+  "material_code": "string",
+  "material_desc": "string",
+  "forecast_qty": number,
+  "metadata": { "key": "value" }
+}
+
+PUT /v1/saleforecast/:recordId
+Body (json):
+{
+  "anchor_month": "yyyy-MM",
+  "company_code": "string",
+  "company_desc": "string",
+  "material_code": "string",
+  "material_desc": "string",
+  "forecast_qty": number,
+  "metadata": { "key": "value" }
+}
+
+DELETE /v1/saleforecast/:recordId
+```
+
+#### Parameter Rules
+- `anchor_month` comes from `forecast_run.anchor_month` and is required for all GET, POST, and PUT requests. The value must be a valid month start date (`yyyy-MM`).
+- `company_code` and `company_desc` reference the `dim_company` table and are optional filters or attributes.
+- `material_code` and `material_desc` reference the `dim_material` table and are optional filters or attributes.
+
+#### Responses
+- `GET /v1/saleforecast` returns an array of forecast records filtered by the provided criteria.
+- `POST /v1/saleforecast` returns the created record with its generated identifier.
+- `PUT /v1/saleforecast/:recordId` returns the updated record.
+- `DELETE /v1/saleforecast/:recordId` returns a confirmation payload indicating the record was removed.
+
+#### Audit Logging
+Every `GET`, `POST`, `PUT`, and `DELETE` request to the `/v1/saleforecast` endpoints must write an entry to the `audit_logs` table with at least:
+```json
+{
+  "service": "data-service",
+  "endpoint": "/v1/saleforecast",
+  "action": "GET|POST|PUT|DELETE",
+  "record_id": "<recordId>",
+  "performed_by": "<user or apiKey>",
+  "performed_at": "2025-01-20T10:30:00Z"
+}
+```
+The `action` column captures the HTTP verb to show who performed what operation in the application.
+
+Example entry when a request is made with an API key:
+```json
+{
+  "service": "data-service",
+  "endpoint": "/v1/saleforecast",
+  "action": "GET",
+  "record_id": null,
+  "performed_by": "apiKey:sf_client_123",
+  "performed_at": "2025-03-05T09:12:44Z"
+}
+```
+
+### Audit Logs
+```http
+GET /v1/audit-logs
+Parameters (query):
+  - service: string
+  - endpoint: string
+  - action: string
+  - performed_by: string
+  - since: ISO 8601 timestamp
+  - until: ISO 8601 timestamp
+  - limit: number (default: 100, max: 500)
+  - cursor: string (audit log id for pagination)
+```
+
+Returns audit trail entries captured in the `audit_logs` table. Results are ordered by most recent (`id` descending). The optional filters allow narrowing the data to a specific service or endpoint, or to a time window using `since`/`until`. Use `cursor` to page through older records by passing the `paging.next` value from the previous response.
+
+Example (API key):
+```bash
+curl -H "X-API-Key: your-api-key" \
+  "http://localhost:6603/v1/audit-logs?endpoint=/v1/saleforecast&limit=20"
+```
+
+Response:
+```json
+{
+  "data": [
+    {
+      "id": "72",
+      "service": "data-service",
+      "endpoint": "/v1/saleforecast",
+      "action": "GET",
+      "record_id": null,
+      "performed_by": "static-key",
+      "metadata": {
+        "query": {
+          "anchor_month": "2025-10"
+        },
+        "resultCount": 3
+      },
+      "performed_at": "2025-10-18T12:03:53.247Z"
+    }
+  ],
+  "paging": {
+    "next": "71"
+  }
+}
+```
+
+### Forecast Runs
+```http
+GET /v1/forecast-runs
+Parameters (query):
+  - anchor_month*: yyyy-MM
+  - company_code: string
+  - company_desc: string
+  - material_code: string
+  - material_desc: string
+```
+
+Retrieves forecast metadata keyed by the run anchor month. The `anchor_month` parameter is required and maps directly to `forecast_run.anchor_month`. Optional filters align with dimension attributes so consumers can narrow the result set to specific companies (`dim_company.company_code`, `dim_company.company_desc`) or materials (`dim_material.material_code`, `dim_material.material_desc`).
+
+Responses include the list of available runs along with any derived summary data needed by the sales forecast UI.
+
 ### Pricing
 ```http
 GET /v1/prices

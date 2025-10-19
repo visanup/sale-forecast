@@ -11,6 +11,8 @@ import { apiKeyAuth } from './middleware/apiKeyAuth.js';
 import { forecastRouter } from './routes/forecast.js';
 import { pricesRouter } from './routes/prices.js';
 import { logsRouter } from './routes/logs.js';
+import { salesForecastRouter } from './routes/saleforecast.js';
+import { auditLogsRouter } from './routes/auditLogs.js';
 import { createRedisLogger } from './utils/redis-logger.js';
 
 const logger = createRedisLogger('data-service', process.env['LOG_LEVEL'] || 'info');
@@ -89,6 +91,99 @@ app.get('/openapi.json', (_req, res) => {
       },
       "/v1/forecast": {
         "get": { "summary": "List forecast", "security": [{ "ApiKeyAuth": [] }], "responses": { "200": { "description": "OK" } } }
+      },
+      "/v1/audit-logs": {
+        "get": {
+          "summary": "List audit logs",
+          "security": [{ "ApiKeyAuth": [] }],
+          "parameters": [
+            { "name": "service", "in": "query", "schema": { "type": "string" } },
+            { "name": "endpoint", "in": "query", "schema": { "type": "string" } },
+            { "name": "action", "in": "query", "schema": { "type": "string" } },
+            { "name": "performed_by", "in": "query", "schema": { "type": "string" } },
+            { "name": "since", "in": "query", "schema": { "type": "string", "format": "date-time" } },
+            { "name": "until", "in": "query", "schema": { "type": "string", "format": "date-time" } },
+            { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 500, "default": 100 } },
+            { "name": "cursor", "in": "query", "schema": { "type": "string", "description": "Fetch logs with id less than this cursor" } }
+          ],
+          "responses": { "200": { "description": "OK" } }
+        }
+      },
+      "/v1/saleforecast": {
+        "get": {
+          "summary": "List sales forecast records",
+          "security": [{ "ApiKeyAuth": [] }],
+          "parameters": [
+            { "name": "anchor_month", "in": "query", "required": true, "schema": { "type": "string", "pattern": "^\\d{4}-(0[1-9]|1[0-2])$" } },
+            { "name": "company_code", "in": "query", "schema": { "type": "string" } },
+            { "name": "company_desc", "in": "query", "schema": { "type": "string" } },
+            { "name": "material_code", "in": "query", "schema": { "type": "string" } },
+            { "name": "material_desc", "in": "query", "schema": { "type": "string" } }
+          ],
+          "responses": { "200": { "description": "OK" } }
+        },
+        "post": {
+          "summary": "Create sales forecast record",
+          "security": [{ "ApiKeyAuth": [] }],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["anchor_month", "forecast_qty"],
+                  "properties": {
+                    "anchor_month": { "type": "string", "pattern": "^\\d{4}-(0[1-9]|1[0-2])$" },
+                    "company_code": { "type": "string" },
+                    "company_desc": { "type": "string" },
+                    "material_code": { "type": "string" },
+                    "material_desc": { "type": "string" },
+                    "forecast_qty": { "type": "number" },
+                    "metadata": { "type": "object", "additionalProperties": true }
+                  }
+                }
+              }
+            }
+          },
+          "responses": { "201": { "description": "Created" } }
+        }
+      },
+      "/v1/saleforecast/{recordId}": {
+        "put": {
+          "summary": "Update sales forecast record",
+          "security": [{ "ApiKeyAuth": [] }],
+          "parameters": [
+            { "name": "recordId", "in": "path", "required": true, "schema": { "type": "string" } }
+          ],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "anchor_month": { "type": "string", "pattern": "^\\d{4}-(0[1-9]|1[0-2])$" },
+                    "company_code": { "type": "string" },
+                    "company_desc": { "type": "string" },
+                    "material_code": { "type": "string" },
+                    "material_desc": { "type": "string" },
+                    "forecast_qty": { "type": "number" },
+                    "metadata": { "type": "object", "additionalProperties": true }
+                  }
+                }
+              }
+            }
+          },
+          "responses": { "200": { "description": "OK" }, "404": { "description": "Not Found" } }
+        },
+        "delete": {
+          "summary": "Delete sales forecast record",
+          "security": [{ "ApiKeyAuth": [] }],
+          "parameters": [
+            { "name": "recordId", "in": "path", "required": true, "schema": { "type": "string" } }
+          ],
+          "responses": { "200": { "description": "OK" }, "404": { "description": "Not Found" } }
+        }
       }
     },
     "components": {
@@ -109,6 +204,8 @@ app.get('/docs', (_req, res) => res.redirect('https://example.com/docs')); // pl
 // Protect data routes with API key validation
 app.use('/v1/forecast', apiKeyAuth, forecastRouter);
 app.use('/v1/prices', apiKeyAuth, pricesRouter);
+app.use('/v1/audit-logs', apiKeyAuth, auditLogsRouter);
 app.use('/v1/logs', apiKeyAuth, logsRouter);
+app.use('/v1/saleforecast', apiKeyAuth, salesForecastRouter);
 
 app.listen(config.port, () => logger.info({ port: config.port }, 'data-service listening'));

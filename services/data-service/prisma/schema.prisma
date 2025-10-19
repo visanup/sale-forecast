@@ -112,3 +112,31 @@ model fact_forecast {
   @@index([sku_id], map: "idx_fact_forecast_sku")
   @@map("fact_forecast")
 }
+
+model saleforecast {
+  id             BigInt   @id @default(autoincrement()) @db.BigInt
+  anchor_month   DateTime @db.Date
+  company_code   String?  @db.Text
+  company_desc   String?  @db.Text
+  material_code  String?  @db.Text
+  material_desc  String?  @db.Text
+  forecast_qty   Decimal  @db.Decimal(18, 4)
+  metadata       Json?
+  created_at     DateTime @default(now())
+  updated_at     DateTime @updatedAt
+
+  @@map("saleforecast")
+}
+
+model audit_logs {
+  id           BigInt   @id @default(autoincrement()) @db.BigInt
+  service      String   @db.Text
+  endpoint     String   @db.Text
+  action       String   @db.Text
+  record_id    String?  @db.Text
+  performed_by String?  @db.Text
+  metadata     Json?
+  performed_at DateTime @default(now())
+
+  @@map("audit_logs")
+}

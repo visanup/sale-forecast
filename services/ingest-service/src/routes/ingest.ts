@@ -2,12 +2,37 @@ import { Router, type Request, type Response, type RequestHandler } from 'expres
 import multer from 'multer';
 import { z } from 'zod';
 import { manualPayloadSchema } from '../schemas/ingest.schema.js';
-import { createRun, insertForecastRows, upsertDimensions } from '../services/ingest.service.js';
+import { createRun, insertForecastRows, upsertDimensions, writeSalesForecastHistory } from '../services/ingest.service.js';
 import xlsx from 'xlsx';
 
 export const ingestRouter = Router();
 const upload = multer();
 const uploadSingle: RequestHandler = upload.single('file') as unknown as RequestHandler;
+
+type ColumnType = 'string' | 'number';
+
+const COLUMN_TYPE_MAP: Record<string, ColumnType> = {
+  'หน่วยงาน': 'string',
+  'ชื่อบริษัท': 'string',
+  'SAP Code': 'string',
+  'SAPCode': 'string',
+  'ชื่อสินค้า': 'string',
+  'Pack Size': 'string',
+  'หน่วย': 'string',
+  'n-2': 'number',
+  'n-1': 'number',
+  'n': 'number',
+  'n+1': 'number',
+  'n+2': 'number',
+  'n+3': 'number',
+  'Price': 'number',
+  'Division': 'string',
+  'Sales Organization': 'string',
+  'Sales Office': 'string',
+  'Sales Group': 'string',
+  'Sales Representative': 'string',
+  'Distribution Channel': 'string'
+};
 
 function normalizeString(value: unknown): string | undefined {
   if (value === null || value === undefined) return undefined;
@@ -33,14 +58,66 @@ ingestRouter.post('/upload', uploadSingle, async (req: Request, res: Response) =
     const wb = xlsx.read(req.file.buffer, { type: 'buffer' });
     const ws = wb.Sheets[wb.SheetNames[0]];
     const rows: any[] = xlsx.utils.sheet_to_json(ws);
+    const validationErrors: Array<{ row: number; column: string; expected: ColumnType; actual: string }> = [];
+
+    rows.forEach((row, index) => {
+      for (const [column, expectedType] of Object.entries(COLUMN_TYPE_MAP)) {
+        if (!(column in row)) continue;
+        let value = row[column];
+        if (value === '' || value === null || value === undefined) continue;
+
+        if (expectedType === 'string' && typeof value === 'number' && Number.isFinite(value)) {
+          const stringified = String(value);
+          row[column] = stringified;
+          value = stringified;
+        }
+
+        const actualType = typeof value;
+        const isExpected =
+          expectedType === 'number'
+            ? actualType === 'number' && Number.isFinite(value)
+            : actualType === 'string';
+
+        if (!isExpected) {
+          validationErrors.push({
+            row: index + 2, // Account for header row in Excel
+            column,
+            expected: expectedType,
+            actual: actualType
+          });
+        }
+      }
+    });
+
+    if (validationErrors.length > 0) {
+      const logger = (req as any)?.log;
+      logger?.error(
+        { anchorMonth, validationErrors, totalRows: rows.length },
+        'upload validation failed'
+      );
+      const formatted = validationErrors
+        .slice(0, 10)
+        .map(
+          (err) =>
+            `แถวที่ ${err.row} คอลัมน์ "${err.column}" ควรเป็น ${err.expected} แต่พบ ${err.actual}`
+        );
+      const moreCount = validationErrors.length - formatted.length;
+      const message =
+        formatted.join('; ') +
+        (moreCount > 0 ? `; และพบปัญหาเพิ่มเติมอีก ${moreCount} จุด` : '');
+      return res.status(400).json({
+        error: { code: 'INVALID_FORMAT', message: message || 'invalid column types detected' }
+      });
+    }
     // Map header fields per docs here (simplified):
     const run = await createRun(anchorMonth, 'upload');
+    let insertedCount = 0;
     for (const r of rows) {
       const companyName = normalizeString(r['ชื่อบริษัท'] ?? r['company_desc']);
       const companyCode = normalizeString(r['company_code'] ?? r['companyCode'] ?? companyName);
       const deptCode = normalizeString(r['หน่วยงาน'] ?? r['dept_code']);
       const dcCode = normalizeString(r['Distribution Channel'] ?? r['dc_code']);
-      const materialCode = normalizeString(r['SAP Code'] ?? r['material_code']);
+      const materialCode = normalizeString(r['SAP Code'] ?? r['SAPCode'] ?? r['material_code']);
       const materialDesc = normalizeString(r['ชื่อสินค้า'] ?? r['material_desc']);
       const packSize = normalizeString(r['Pack Size'] ?? r['pack_size']);
       const uomCode = normalizeString(r['หน่วย'] ?? r['uom_code']);
@@ -78,9 +155,23 @@ ingestRouter.post('/upload', uploadSingle, async (req: Request, res: Response) =
         }
       }
       const dim = await upsertDimensions(line);
-      await insertForecastRows(run.run_id, line, dim, anchorMonth);
+      const createdCount = await insertForecastRows(run.run_id, line, dim, anchorMonth);
+      await writeSalesForecastHistory({
+        anchorMonth,
+        line,
+        dim,
+        runId: run.run_id,
+        source: 'upload',
+        factRowsInserted: createdCount
+      });
+      insertedCount += createdCount;
     }
-    return res.status(202).json({ runId: Number(run.run_id) });
+    const logger = (req as any)?.log;
+    logger?.info(
+      { anchorMonth, runId: Number(run.run_id), processedRows: rows.length, insertedCount },
+      'upload processed successfully'
+    );
+    return res.status(202).json({ runId: Number(run.run_id), insertedCount });
   } catch (e: any) {
     return res.status(400).json({ error: { code: 'BAD_REQUEST', message: e.message } });
   }
@@ -101,7 +192,15 @@ ingestRouter.post('/manual', async (req, res) => {
   const run = await createRun(anchorMonth, 'manual');
   for (const line of lines) {
     const dim = await upsertDimensions(line);
-    await insertForecastRows(run.run_id, line, dim, anchorMonth);
+    const createdCount = await insertForecastRows(run.run_id, line, dim, anchorMonth);
+    await writeSalesForecastHistory({
+      anchorMonth,
+      line,
+      dim,
+      runId: run.run_id,
+      source: 'manual',
+      factRowsInserted: createdCount
+    });
   }
   return res.status(201).json({ runId: Number(run.run_id) });
 });
