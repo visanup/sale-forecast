@@ -127,15 +127,37 @@ async function refreshTokensRequest(refreshToken: string): Promise<ApiResponse<A
   return json as ApiResponse<AuthSuccessResponse>;
 }
 
-async function http<T>(url: string, init?: RequestInit, opts: { retry?: boolean } = {}): Promise<T> {
-  const { retry = true } = opts;
+type HttpOptions = { retry?: boolean; timeoutMs?: number };
+
+async function http<T>(url: string, init?: RequestInit, opts: HttpOptions = {}): Promise<T> {
+  const { retry = true, timeoutMs } = opts;
 
   const performRequest = async (tokens: AuthTokens) => {
     const headers = new Headers(init?.headers || {});
     if (tokens.accessToken && !headers.has('Authorization')) {
       headers.set('Authorization', `Bearer ${tokens.accessToken}`);
     }
-    return fetch(url, { ...init, headers });
+
+    // Compose abort signal with optional timeout
+    let controller: AbortController | undefined;
+    let timeoutId: any;
+    try {
+      let signal: AbortSignal | undefined = init?.signal as AbortSignal | undefined;
+      if (typeof timeoutMs === 'number' && timeoutMs > 0) {
+        controller = new AbortController();
+        // If caller provided a signal, tie it to our controller as well
+        if (signal) {
+          if (signal.aborted) controller.abort();
+          else signal.addEventListener('abort', () => controller?.abort(), { once: true });
+        }
+        timeoutId = setTimeout(() => controller?.abort(), timeoutMs);
+        signal = controller.signal;
+      }
+
+      return await fetch(url, { ...init, headers, signal });
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId);
+    }
   };
 
   const currentTokens = getTokens();
@@ -168,7 +190,20 @@ async function http<T>(url: string, init?: RequestInit, opts: { retry?: boolean 
 
   const json = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(json?.error?.message || response.statusText);
+    const err: any = new Error((json as any)?.error?.message || response.statusText);
+    try {
+      err.status = response.status;
+      const ra = response.headers.get('Retry-After');
+      if (ra) {
+        const seconds = Number(ra);
+        if (Number.isFinite(seconds)) err.retryAfterMs = seconds * 1000;
+        else {
+          const dateTs = Date.parse(ra);
+          if (!Number.isNaN(dateTs)) err.retryAfterMs = Math.max(0, dateTs - Date.now());
+        }
+      }
+    } catch {}
+    throw err;
   }
 
   return json as T;
@@ -262,21 +297,17 @@ export const dataApi = {
   },
   async salesForecastHistory(params: {
     anchor_month: string;
-    company_code?: string;
-    company_desc?: string;
-    material_code?: string;
-    material_desc?: string;
+    search?: string;
   }) {
     const sp = new URLSearchParams();
     sp.set('anchor_month', params.anchor_month);
-    if (params.company_code) sp.set('company_code', params.company_code);
-    if (params.company_desc) sp.set('company_desc', params.company_desc);
-    if (params.material_code) sp.set('material_code', params.material_code);
-    if (params.material_desc) sp.set('material_desc', params.material_desc);
+    if (params.search) sp.set('search', params.search);
 
-    return http<{ data: SalesForecastRecord[] }>(`${DATA_BASE}/v1/saleforecast?${sp.toString()}`, {
-      headers: { 'x-api-key': DATA_API_KEY }
-    });
+    return http<{ data: SalesForecastRecord[] }>(
+      `${DATA_BASE}/v1/saleforecast?${sp.toString()}`,
+      { headers: { 'x-api-key': DATA_API_KEY } },
+      { timeoutMs: 30000 }
+    );
   },
   async salesForecastUpdate(
     recordId: string,
@@ -308,11 +339,15 @@ export const dataApi = {
       body: JSON.stringify(body)
     });
   },
-  async salesForecastDelete(recordId: string) {
-    return http<{ data: SalesForecastRecord }>(`${DATA_BASE}/v1/saleforecast/${recordId}`, {
-      method: 'DELETE',
-      headers: { 'x-api-key': DATA_API_KEY }
-    });
+  async salesForecastDelete(recordId: string, opts?: { timeoutMs?: number }) {
+    return http<{ data: SalesForecastRecord }>(
+      `${DATA_BASE}/v1/saleforecast/${recordId}`,
+      {
+        method: 'DELETE',
+        headers: { 'x-api-key': DATA_API_KEY }
+      },
+      { timeoutMs: opts?.timeoutMs }
+    );
   }
 };
 
@@ -355,6 +390,15 @@ export type SalesForecastRecord = {
   metadata: SalesForecastMetadata | null;
   created_at: string;
   updated_at: string;
+  last_action: string | null;
+  last_performed_at: string | null;
+  last_actor: {
+    performed_by: string | null;
+    user_id: string | null;
+    user_email: string | null;
+    user_username: string | null;
+    client_id: string | null;
+  } | null;
 };
 
 type DimQueryParams = {
@@ -398,6 +442,18 @@ export const dimApi = {
       headers: { 'x-api-key': DATA_API_KEY },
       signal: params?.signal
     });
+  },
+  async skus(params?: DimQueryParams) {
+    return http<{ data: any[] }>(`${DIM_BASE}/v1/dim/skus${buildDimQuery(params)}`, {
+      headers: { 'x-api-key': DATA_API_KEY },
+      signal: params?.signal
+    });
+  },
+  async salesOrgs(params?: DimQueryParams) {
+    return http<{ data: any[] }>(`${DIM_BASE}/v1/dim/sales-orgs${buildDimQuery(params)}`, {
+      headers: { 'x-api-key': DATA_API_KEY },
+      signal: params?.signal
+    });
   }
 };
 
@@ -406,7 +462,12 @@ export const ingestApi = {
     const fd = new FormData();
     fd.append('file', file);
     fd.append('anchorMonth', anchorMonth);
-    return http<{ runId: number; insertedCount?: number }>(`${INGEST_BASE}/v1/upload`, {
+    return http<{
+      runId: number;
+      insertedCount?: number;
+      processedRows?: number;
+      factRowsInserted?: number;
+    }>(`${INGEST_BASE}/v1/upload`, {
       method: 'POST',
       headers: { 'x-api-key': INGEST_API_KEY },
       body: fd
@@ -416,6 +477,8 @@ export const ingestApi = {
     anchorMonth: string;
     lines: Array<{
       company_code: string;
+      company_desc?: string;
+      Company_code?: string;
       dept_code: string;
       dc_code: string;
       division?: string;

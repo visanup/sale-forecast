@@ -19,6 +19,10 @@ type AuditLogRecord = {
   action: string;
   record_id: string | null;
   performed_by: string | null;
+  user_id: string | null;
+  user_email: string | null;
+  user_username: string | null;
+  client_id: string | null;
   metadata: Prisma.JsonValue | null;
   performed_at: string;
 };
@@ -30,6 +34,10 @@ function serializeAuditLog(record: {
   action: string;
   record_id: string | null;
   performed_by: string | null;
+  user_id: string | null;
+  user_email: string | null;
+  user_username: string | null;
+  client_id: string | null;
   metadata: Prisma.JsonValue | null;
   performed_at: Date;
 }): AuditLogRecord {
@@ -40,6 +48,10 @@ function serializeAuditLog(record: {
     action: record.action,
     record_id: record.record_id,
     performed_by: record.performed_by,
+    user_id: record.user_id,
+    user_email: record.user_email,
+    user_username: record.user_username,
+    client_id: record.client_id,
     metadata: record.metadata,
     performed_at: record.performed_at.toISOString()
   };

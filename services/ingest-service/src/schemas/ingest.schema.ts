@@ -2,6 +2,8 @@ import { z } from 'zod';
 
 export const manualLineSchema = z.object({
   company_code: z.string(),
+  company_desc: z.string().optional(),
+  Company_code: z.string().optional(),
   dept_code: z.string(),
   dc_code: z.string(),
   division: z.string().optional(),
@@ -19,5 +21,4 @@ export const manualPayloadSchema = z.object({
   anchorMonth: z.string(),
   lines: z.array(manualLineSchema).min(1)
 });
-
 

@@ -19,6 +19,8 @@ type ComboInputProps<TMeta = unknown> = {
   onSearch?: (query: string) => Promise<ComboOption<TMeta>[]>;
   onSelectOption?: (option: ComboOption<TMeta>) => void;
   disabled?: boolean;
+  // Control whether to show local "Recent" history in the dropdown
+  showHistory?: boolean;
 };
 
 const HISTORY_PREFIX = 'combo-history:';
@@ -83,15 +85,18 @@ export default function ComboInput<TMeta = unknown>({
   onSearch,
   onSelectOption,
   disabled,
+  showHistory = true,
 }: ComboInputProps<TMeta>) {
   const [open, setOpen] = useState(false);
   const [highlighted, setHighlighted] = useState(0);
   const [inputValue, setInputValue] = useState(value || '');
   const [historyItems, setHistoryItems] = useState<string[]>(() => loadHistory(historyKey));
   const containerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const searchSeqRef = useRef(0);
   const [asyncOptions, setAsyncOptions] = useState<ComboOption<TMeta>[]>([]);
   const [loading, setLoading] = useState(false);
+  const [dropdownPos, setDropdownPos] = useState<{ left: number; top: number; width: number } | null>(null);
 
   useEffect(() => {
     setInputValue(value || '');
@@ -177,7 +182,7 @@ export default function ComboInput<TMeta = unknown>({
         ? arr
         : arr.filter(option => terms.every(term => option.searchTokens.some(token => token.includes(term))));
 
-    let historyMatches = matches(normalizedHistory);
+    let historyMatches = showHistory ? matches(normalizedHistory) : [];
     let optionMatches = matches(normalizedOptions);
 
     if (historyMatches.length === 0 && optionMatches.length === 0 && !loading) {
@@ -189,7 +194,7 @@ export default function ComboInput<TMeta = unknown>({
     }
 
     const sections: Array<{ title?: string; items: NormalizedOption<TMeta>[] }> = [];
-    if (historyMatches.length > 0) {
+    if (showHistory && historyMatches.length > 0) {
       sections.push({ title: 'Recent', items: historyMatches });
     }
     if (optionMatches.length > 0) {
@@ -212,6 +217,27 @@ export default function ComboInput<TMeta = unknown>({
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  // Keep dropdown positioned relative to viewport to avoid clipping by overflow
+  useEffect(() => {
+    function update() {
+      if (!open) return;
+      const el = inputRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      setDropdownPos({ left: rect.left, top: rect.bottom - 80, width: rect.width });
+    }
+    update();
+    if (!open) return;
+    const onScroll = () => update();
+    const onResize = () => update();
+    window.addEventListener('scroll', onScroll, true);
+    window.addEventListener('resize', onResize);
+    return () => {
+      window.removeEventListener('scroll', onScroll, true);
+      window.removeEventListener('resize', onResize);
+    };
+  }, [open]);
 
   useEffect(() => {
     if (!open) setHighlighted(0);
@@ -240,12 +266,23 @@ export default function ComboInput<TMeta = unknown>({
         value={inputValue}
         placeholder={placeholder}
         disabled={disabled}
-        onFocus={() => setOpen(true)}
+        ref={inputRef}
+        onFocus={() => {
+          setOpen(true);
+          if (inputRef.current) {
+            const rect = inputRef.current.getBoundingClientRect();
+            setDropdownPos({ left: rect.left, top: rect.bottom + 2, width: rect.width });
+          }
+        }}
         onChange={event => {
           const next = event.target.value;
           setInputValue(next);
           onChange(next);
           setOpen(true);
+          if (inputRef.current) {
+            const rect = inputRef.current.getBoundingClientRect();
+            setDropdownPos({ left: rect.left, top: rect.bottom + 2, width: rect.width });
+          }
         }}
         onKeyDown={event => {
           if (!open && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
@@ -271,8 +308,11 @@ export default function ComboInput<TMeta = unknown>({
         }}
         onBlur={() => setTimeout(() => setOpen(false), 100)}
       />
-      {open && (
-        <div className="absolute z-30 mt-1 max-h-64 w-full overflow-auto rounded-md border border-neutral-200 bg-white text-sm shadow-lg dark:border-neutral-700 dark:bg-neutral-900">
+      {open && dropdownPos && (
+        <div
+          className="fixed z-[9999] max-h-64 overflow-auto rounded-md border border-neutral-200 bg-white text-sm shadow-lg dark:border-neutral-700 dark:bg-neutral-900"
+          style={{ left: dropdownPos.left, top: dropdownPos.top, width: dropdownPos.width }}
+        >
           {loading && (
             <div className="px-3 py-2 text-sm text-neutral-500 dark:text-neutral-400">Searching…</div>
           )}

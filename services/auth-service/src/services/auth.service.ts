@@ -8,7 +8,7 @@ import {
   RegisterData, 
   AuthResponse, 
   User, 
-  TokenPayload,
+  AuthTokenPayload,
   PasswordResetRequest,
   PasswordResetData,
   DeviceInfo,
@@ -68,14 +68,7 @@ export class AuthService {
     }
 
     const user = await this.prisma.user.create({
-      data: userData,
-      include: {
-        roles: {
-          include: {
-            role: true
-          }
-        }
-      }
+      data: userData
     });
 
     // Log registration
@@ -106,13 +99,6 @@ export class AuthService {
           { username: credentials.username }
         ],
         isActive: true
-      },
-      include: {
-        roles: {
-          include: {
-            role: true
-          }
-        }
       }
     });
 
@@ -137,11 +123,11 @@ export class AuthService {
 
     // Generate tokens
     const tokenFamily = TokenUtil.generateTokenFamily();
-    const tokenPayload: Omit<TokenPayload, 'iat' | 'exp' | 'type'> = {
+    const tokenPayload: Omit<AuthTokenPayload, 'iat' | 'exp' | 'type'> = {
       sub: user.id,
       email: user.email,
       username: user.username,
-      roles: user.roles.map((ur: any) => ur.role.name),
+      role: user.role,
       jti: tokenFamily
     };
 
@@ -202,15 +188,7 @@ export class AuthService {
     const storedToken = await this.prisma.refreshToken.findUnique({
       where: { token: refreshToken },
       include: {
-        user: {
-          include: {
-            roles: {
-              include: {
-                role: true
-              }
-            }
-          }
-        }
+        user: true
       }
     });
 
@@ -236,11 +214,11 @@ export class AuthService {
 
     // Generate new tokens
     const newTokenFamily = TokenUtil.generateTokenFamily();
-    const newTokenPayload: Omit<TokenPayload, 'iat' | 'exp' | 'type'> = {
+    const newTokenPayload: Omit<AuthTokenPayload, 'iat' | 'exp' | 'type'> = {
       sub: storedToken.user.id,
       email: storedToken.user.email,
       username: storedToken.user.username,
-      roles: storedToken.user.roles.map((ur: any) => ur.role.name),
+      role: storedToken.user.role,
       jti: newTokenFamily
     };
 
@@ -406,14 +384,7 @@ export class AuthService {
    */
   async getCurrentUser(userId: string): Promise<User> {
     const user = await this.prisma.user.findUnique({
-      where: { id: userId, isActive: true },
-      include: {
-        roles: {
-          include: {
-            role: true
-          }
-        }
-      }
+      where: { id: userId, isActive: true }
     });
 
     if (!user) {
@@ -442,14 +413,7 @@ export class AuthService {
 
     const user = await this.prisma.user.update({
       where: { id: userId },
-      data: updateData,
-      include: {
-        roles: {
-          include: {
-            role: true
-          }
-        }
-      }
+      data: updateData
     });
 
     await this.auditService.log({
@@ -472,14 +436,14 @@ export class AuthService {
       id: user.id,
       email: user.email,
       username: user.username,
+      role: user.role,
       firstName: user.firstName,
       lastName: user.lastName,
       isActive: user.isActive,
       emailVerified: user.emailVerified,
       lastLoginAt: user.lastLoginAt,
       createdAt: user.createdAt,
-      updatedAt: user.updatedAt,
-      roles: user.roles?.map((ur: any) => ur.role.name) || []
+      updatedAt: user.updatedAt
     };
   }
 }

@@ -8,9 +8,8 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// Map to existing tables; keep model names simple or map with @@map
 model dim_company {
-  company_id   BigInt  @id @default(autoincrement()) @db.BigInt
+  company_id   BigInt  @id @default(autoincrement())
   company_code String  @unique
   company_desc String?
 
@@ -18,51 +17,51 @@ model dim_company {
 }
 
 model dim_dept {
-  dept_id   BigInt @id @default(autoincrement()) @db.BigInt
+  dept_id   BigInt @id @default(autoincrement())
   dept_code String @unique
 
   @@map("dim_dept")
 }
 
 model dim_distribution_channel {
-  dc_id   BigInt @id @default(autoincrement()) @db.BigInt
-  dc_code String @unique
+  dc_id   BigInt  @id @default(autoincrement())
+  dc_code String  @unique
   dc_desc String?
 
   @@map("dim_distribution_channel")
 }
 
 model dim_uom {
-  uom_id   BigInt @id @default(autoincrement()) @db.BigInt
+  uom_id   BigInt @id @default(autoincrement())
   uom_code String @unique
 
   @@map("dim_uom")
 }
 
 model dim_material {
-  material_id   BigInt @id @default(autoincrement()) @db.BigInt
-  material_code String @unique
+  material_id   BigInt  @id @default(autoincrement())
+  material_code String  @unique
   material_desc String?
 
   @@map("dim_material")
 }
 
 model dim_sku {
-  sku_id     BigInt @id @default(autoincrement()) @db.BigInt
+  sku_id      BigInt @id @default(autoincrement())
   material_id BigInt
-  pack_size  String
-  uom_id     BigInt
+  pack_size   String
+  uom_id      BigInt
 
   @@unique([material_id, pack_size, uom_id])
   @@map("dim_sku")
 }
 
 model dim_sales_org {
-  sales_org_id        BigInt @id @default(autoincrement()) @db.BigInt
-  division            String?
-  sales_organization  String?
-  sales_office        String?
-  sales_group         String?
+  sales_org_id         BigInt  @id @default(autoincrement())
+  division             String?
+  sales_organization   String?
+  sales_office         String?
+  sales_group          String?
   sales_representative String?
 
   @@unique([division, sales_organization, sales_office, sales_group, sales_representative])
@@ -77,9 +76,11 @@ model dim_month {
 }
 
 model forecast_run {
-  run_id       BigInt   @id @default(autoincrement()) @db.BigInt
+  run_id       BigInt   @id @default(autoincrement())
   anchor_month DateTime @db.Date
   created_at   DateTime @default(now())
+  method       String?
+  notes        String?
 
   @@map("forecast_run")
 }
@@ -95,48 +96,63 @@ model fact_price {
 }
 
 model fact_forecast {
-  run_id       BigInt
-  company_id   BigInt
-  dept_id      BigInt
-  sku_id       BigInt
-  sales_org_id BigInt
-  dc_id        BigInt
-  month_id     DateTime @db.Date
+  run_id              BigInt
+  company_id          BigInt
+  dept_id             BigInt
+  sku_id              BigInt
+  sales_org_id        BigInt
+  dc_id               BigInt
+  month_id            DateTime @db.Date
   forecast_qty        Decimal  @db.Decimal(18, 4)
   unit_price_snapshot Decimal? @db.Decimal(18, 4)
   revenue_snapshot    Decimal? @db.Decimal(18, 4)
 
   @@id([run_id, company_id, dept_id, sku_id, sales_org_id, dc_id, month_id])
-  @@index([month_id], map: "idx_fact_forecast_month")
-  @@index([company_id], map: "idx_fact_forecast_company")
-  @@index([sku_id], map: "idx_fact_forecast_sku")
   @@map("fact_forecast")
 }
 
 model saleforecast {
-  id             BigInt   @id @default(autoincrement()) @db.BigInt
-  anchor_month   DateTime @db.Date
-  company_code   String?  @db.Text
-  company_desc   String?  @db.Text
-  material_code  String?  @db.Text
-  material_desc  String?  @db.Text
-  forecast_qty   Decimal  @db.Decimal(18, 4)
-  metadata       Json?
-  created_at     DateTime @default(now())
-  updated_at     DateTime @updatedAt
+  id            BigInt   @id @default(autoincrement())
+  anchor_month  DateTime @db.Date
+  company_code  String?
+  company_desc  String?
+  material_code String?
+  material_desc String?
+  forecast_qty  Decimal  @db.Decimal(18, 4)
+  metadata      Json?
+  created_at    DateTime @default(now())
+  updated_at    DateTime @default(now()) @updatedAt
 
+  @@index([anchor_month], map: "idx_saleforecast_anchor_month")
+  @@index([company_code], map: "idx_saleforecast_company_code")
+  @@index([material_code], map: "idx_saleforecast_material_code")
   @@map("saleforecast")
 }
 
 model audit_logs {
-  id           BigInt   @id @default(autoincrement()) @db.BigInt
-  service      String   @db.Text
-  endpoint     String   @db.Text
-  action       String   @db.Text
-  record_id    String?  @db.Text
-  performed_by String?  @db.Text
+  id           BigInt   @id @default(autoincrement())
+  service      String
+  endpoint     String
+  action       String
+  record_id    String?
+  performed_by String?
+  // 👇 เพิ่มฟิลด์เหล่านี้ให้ตรงกับ migration 20251020120000_audit_logs_user_columns
+  user_id        String?
+  user_email     String?
+  user_username  String?
+  client_id      String?
   metadata     Json?
   performed_at DateTime @default(now())
 
+  @@index([action], map: "idx_audit_logs_action")
+  @@index([performed_at], map: "idx_audit_logs_performed_at")
   @@map("audit_logs")
+}
+
+model staging_forecast_uploads {
+  id          BigInt   @id @default(autoincrement())
+  batch_id    String   @db.Uuid
+  raw_json    Json
+  imported_at DateTime @default(now())
+  errors      Json?
 }

@@ -13,7 +13,7 @@ faff1da8dd4c   dpage/pgadmin4:latest                         "/entrypoint.sh"   
 
 # ดำเนินการทดสอบ ตาม Test-Scripts.md ดังต่อไปนี้
 
-1. ช่วยลองทดสอบผ่านหน้า frontend UI โดยการกดปุ่ม Select File Excel ที่ http://localhost:6600/ (Home) ไม่ไใช่หน้า **Admin → Import** โดยเลือกไฟล์ `/home/qi67/sale-forecast/y001.xlsx` ที่หน้า web ขึ้น Data Preview เรียบร้อย จากนั้นกดปุ่ม `Submit to Ingest` ส่งข้อมูลไปที่ database โดยใช้  VITE_DATA_API_KEY จากไฟล์ .env เท่านั้น
+1. ช่วยลองทดสอบผ่านหน้า frontend UI โดยการกดปุ่ม Select File Excel ที่ http://localhost:6600/ (Home) ไม่ไใช่หน้า **Admin → Import** โดยเลือกไฟล์ `D:\Betagro\sale-forecast\z001.xlsx` (ระบบจะตัด 2 บรรทัดแรกให้อัตโนมัติ) ที่หน้า web ขึ้น Data Preview เรียบร้อย จากนั้นกดปุ่ม `Submit to Ingest` ส่งข้อมูลไปที่ database โดยใช้  VITE_DATA_API_KEY จากไฟล์ .env เท่านั้น
 
 ไฟล์ .env
 VITE_AUTH_URL=http://localhost:6601
@@ -27,27 +27,27 @@ VITE_DATA_API_KEY=sf_4e77abfe2e799431a21a9bf586f2a67fb518910e2f1b50c346b3b80fb9b
 
 ## 2024-09-19 Frontend Upload Test
 - สภาพแวดล้อม: Codex sandbox (ไม่สามารถเข้าถึงบริการที่รันบน localhost ของเครื่องโฮสต์)
-- ขั้นตอน: พยายามเรียก `http://localhost:6602/v1/upload` ด้วยไฟล์ `/home/qi67/sale-forecast/y001.xlsx` และส่งค่า `x-api-key` จากไฟล์ `frontend/.env`
+- ขั้นตอน: พยายามเรียก `http://localhost:6602/v1/upload` ด้วยไฟล์ `D:\Betagro\sale-forecast\z001.xlsx` (ระบบจะตัด 2 บรรทัดแรกให้อัตโนมัติระหว่างประมวลผล) และส่งค่า `x-api-key` จากไฟล์ `frontend/.env`
 - ผลลัพธ์: เชื่อมต่อไม่ได้ (`curl: (7) Failed to connect to localhost port 6602`) จึงไม่สามารถยืนยันพฤติกรรมผ่านหน้า UI ได้
 - หมายเหตุ: หากต้องการผลการทดสอบผ่านหน้าเว็บจริง ต้องรันคำสั่งจากเครื่องที่เข้าถึงพอร์ต 6600/6602 ของ docker-compose ได้ (เช่น เบราว์เซอร์บนเครื่องโฮสต์)
 
 ## 2024-09-19 Frontend Upload Retest
 - การเปลี่ยนแปลง: อัปเดต `frontend/src/services/api.ts` ให้เพิ่ม header `x-api-key` สำหรับ endpoint `/v1/upload`
-- ขั้นตอน: ใช้ `curl -F "file=@y001.xlsx"` และ `-H "x-api-key: …"` เรียก `http://localhost:6602/v1/upload` เพื่อจำลองการส่งจากหน้า Home
+- ขั้นตอน: ใช้ `curl -F "file=@z001.xlsx"` (ระบบ ingestion จะตัด 2 บรรทัดแรกให้อัตโนมัติ) และ `-H "x-api-key: …"` เรียก `http://localhost:6602/v1/upload` เพื่อจำลองการส่งจากหน้า Home
 - ผลลัพธ์: ยังเชื่อมต่อ localhost ไม่ได้ใน Codex sandbox (`curl: (7) Failed to connect to localhost port 6602`) จึงไม่สามารถยืนยันผ่านหน้า UI ได้
 - ข้อเสนอแนะ: ให้ทดสอบซ้ำจากเครื่องโฮสต์หรือเบราว์เซอร์ที่เข้าถึง docker-compose stack เพื่อยืนยันผลลัพธ์จริง
 
 ## 2024-09-19 Frontend Upload Retest #2
 - การเปลี่ยนแปลงเพิ่มเติม: เพิ่มไฟล์ `frontend/src/services/apiKeyStorage.ts` เพื่อแก้ build ของ Docker frontend และยืนยันว่า ingest client ส่ง `x-api-key` ตามค่า `.env`
-- ขั้นตอน: รัน `npm run build` ใน `frontend/` (สำเร็จ) แล้วพยายาม `curl http://localhost:6602/v1/upload` ด้วยไฟล์ `/home/qi67/sale-forecast/y001.xlsx` และ header `x-api-key`
+- ขั้นตอน: รัน `npm run build` ใน `frontend/` (สำเร็จ) แล้วพยายาม `curl http://localhost:6602/v1/upload` ด้วยไฟล์ `D:\Betagro\sale-forecast\z001.xlsx` (ระบบจะข้าม 2 บรรทัดแรกให้อัตโนมัติ) และ header `x-api-key`
 - ผลลัพธ์: Sandbox ยังเชื่อมต่อ services บน localhost ไม่ได้ (`curl: (7) Failed to connect to localhost port 6602`) จึงยังไม่สามารถยืนยันการ submit ผ่าน UI ได้
-- คำแนะนำ: หลัง rebuild frontend Docker image บนเครื่องโฮสต์ ให้ทดสอบผ่านเบราว์เซอร์ที่ `http://localhost:6600/` ด้วยไฟล์ `y001.xlsx` อีกครั้ง เพื่อยืนยันว่า error `invalid api key` ถูกแก้ไข
+- คำแนะนำ: หลัง rebuild frontend Docker image บนเครื่องโฮสต์ ให้ทดสอบผ่านเบราว์เซอร์ที่ `http://localhost:6600/` ด้วยไฟล์ `z001.xlsx` (ระบบจะตัด 2 บรรทัดแรกให้อัตโนมัติ) อีกครั้ง เพื่อยืนยันว่า error `invalid api key` ถูกแก้ไข
 
 ## 2024-09-19 Frontend Upload Retest #3
 - การแก้ไข: อัปเดต `frontend/Dockerfile` ให้คัดลอกไฟล์ `.env` เข้า build stage และปรับ `frontend/src/services/api.ts` ให้เลือกใช้ `VITE_INGEST_API_KEY` (fallback เป็น `VITE_DATA_API_KEY`)
 - ขั้นตอน: รัน `npm run build` ใน `frontend/` (สำเร็จ) เพื่อยืนยันว่า bundle ใหม่มีค่า API key ที่ถูกต้อง
 - ผลลัพธ์: ยังไม่สามารถทดสอบปลายทางได้ใน sandbox เนื่องจากเชื่อมต่อ `localhost:6602` ไม่ได้
-- คำแนะนำ: Rebuild frontend image (`docker compose build frontend --no-cache`) แล้ว `docker compose up -d frontend` จากเครื่องโฮสต์ และทดสอบอัปโหลด `y001.xlsx` อีกครั้งที่ `http://localhost:6600/`
+- คำแนะนำ: Rebuild frontend image (`docker compose build frontend --no-cache`) แล้ว `docker compose up -d frontend` จากเครื่องโฮสต์ และทดสอบอัปโหลด `z001.xlsx` (ระบบจะตัด 2 บรรทัดแรกให้อัตโนมัติ) อีกครั้งที่ `http://localhost:6600/`
 
 ## 2025-10-08 Auth Flow Regression
 - การเปลี่ยนแปลง: เพิ่ม JWT refresh secret ที่แยกจาก access secret, ปรับ middleware `requireAuth`, และเพิ่ม endpoint `/api/v1/profile` พร้อม context ด้านหน้าเพื่อจัดการ state ของผู้ใช้
@@ -118,7 +118,7 @@ VITE_DATA_API_KEY=sf_4e77abfe2e799431a21a9bf586f2a67fb518910e2f1b50c346b3b80fb9b
 - การเปลี่ยนแปลง: ย้อนกลับการเพิ่มฟิลด์ `method`/`notes` ใน `forecast_run` (แก้ `services/ingest-service/prisma/schema.prisma` และ `services/data-service/prisma/schema.prisma` ให้มีเฉพาะ `anchor_month`/`created_at` ตามโครงสร้างฐานข้อมูลเดิม) พร้อมลบ migration ที่เพิ่มคอลัมน์ดังกล่าว
 - ขั้นตอน: รัน `yarn prisma generate` และ `yarn build` ภายใต้ทั้ง `services/ingest-service/` และ `services/data-service/` เพื่อให้ Prisma Client และไฟล์ `dist/` อัปเดต แล้ว rebuild image บนเครื่องโฮสต์ (`docker compose build --no-cache ingest-service data-service`) ก่อน `docker compose up -d`
 - ผลลัพธ์: รหัสฝั่ง ingest-service จะเรียก `prisma.forecast_run.create` ด้วยเฉพาะ `anchor_month` อีกครั้ง ไม่เกิด error `Unknown argument method` หรือ `column "method" does not exist` ระหว่างอัปโหลด Excel
-- หมายเหตุ: หลัง deploy ให้ทดสอบ Submit to Ingest ด้วยไฟล์จริง (`/home/qi67/sale-forecast/y001.xlsx`) เพื่อยืนยันว่า run ถูกสร้างและบันทึกลงฐานข้อมูลได้สำเร็จ
+- หมายเหตุ: หลัง deploy ให้ทดสอบ Submit to Ingest ด้วยไฟล์จริง (`D:\Betagro\sale-forecast\z001.xlsx` ระบบจะข้าม 2 บรรทัดแรก) เพื่อยืนยันว่า run ถูกสร้างและบันทึกลงฐานข้อมูลได้สำเร็จ
 
 ## ผมต้องการตั้งให้เครื่องนี้เป็น server Localhost เพื่อคอมพิวเตอร์เครื่องอื่นที่อยู่ใน Network เดียวกันสามารถที่จะเข้ามาใช้งานได้ด้วย ซึ่งอยากให้ช่วยศึกษาจาก docs และทำการปรับปรุง service ทั้งหมด ให้คอมพิเตอร์เครื่องอื่นสามารที่จะเข้ามาให้ช่วย web app sale-forecast นี้ได้ด้วย
 - ทำการแก้ไขและทดสอบจนกว่าจะได้ตามข้อกำหนด

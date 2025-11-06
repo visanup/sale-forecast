@@ -1,4 +1,7 @@
 import { PrismaClient, Prisma } from '@prisma/client';
+import type { RequestActor } from '../utils/requestActor.js';
+import { withActorMetadata } from '../utils/requestActor.js';
+import { writeAuditLog } from './audit.service.js';
 
 export const prisma = new PrismaClient();
 
@@ -27,8 +30,9 @@ async function recordSalesForecastHistory(params: {
   runId: bigint;
   source: SalesForecastHistorySource;
   factRowsInserted: number;
+  actor?: RequestActor;
 }) {
-  const { anchorMonth, line, dim, runId, source, factRowsInserted } = params;
+  const { anchorMonth, line, dim, runId, source, factRowsInserted, actor } = params;
   if (!line?.months || line.months.length === 0) return;
 
   try {
@@ -72,7 +76,7 @@ async function recordSalesForecastHistory(params: {
       }
     };
 
-    await prisma.saleforecast.create({
+    const record = await prisma.saleforecast.create({
       data: {
         anchor_month: toAnchorDate(anchorMonth),
         company_code: line.company_code ?? null,
@@ -82,6 +86,30 @@ async function recordSalesForecastHistory(params: {
         forecast_qty: new Prisma.Decimal(Number.isFinite(forecastQty) ? forecastQty : 0),
         metadata
       }
+    });
+
+    const baseAuditMetadata: Prisma.InputJsonObject = {
+      anchorMonth,
+      runId: runId.toString(),
+      source,
+      company_code: line.company_code ?? null,
+      material_code: line.material_code ?? null,
+      factRowsInserted: factRowsInserted
+    };
+
+    const auditMetadata = withActorMetadata(baseAuditMetadata, actor ?? { performedBy: null, clientId: null });
+
+    await writeAuditLog({
+      service: 'ingest-service',
+      endpoint: source === 'upload' ? '/v1/upload' : '/v1/manual',
+      action: 'INSERT',
+      recordId: record.id.toString(),
+      performedBy: actor?.performedBy ?? null,
+      userId: actor?.user?.id ?? null,
+      userEmail: actor?.user?.email ?? null,
+      userUsername: actor?.user?.username ?? null,
+      clientId: actor?.clientId ?? null,
+      metadata: auditMetadata
     });
   } catch (error) {
     console.error('record_sales_forecast_history_failed', {
@@ -196,6 +224,7 @@ export async function writeSalesForecastHistory(params: {
   runId: bigint;
   source: SalesForecastHistorySource;
   factRowsInserted: number;
+  actor?: RequestActor;
 }) {
   await recordSalesForecastHistory(params);
 }

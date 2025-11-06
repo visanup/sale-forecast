@@ -1,9 +1,12 @@
+import type { Prisma } from '@prisma/client';
 import { Router, type Request, type Response, type RequestHandler } from 'express';
 import multer from 'multer';
 import { z } from 'zod';
 import { manualPayloadSchema } from '../schemas/ingest.schema.js';
 import { createRun, insertForecastRows, upsertDimensions, writeSalesForecastHistory } from '../services/ingest.service.js';
 import xlsx from 'xlsx';
+import { writeAuditLog } from '../services/audit.service.js';
+import { resolveRequestActor, withActorMetadata } from '../utils/requestActor.js';
 
 export const ingestRouter = Router();
 const upload = multer();
@@ -15,6 +18,7 @@ const COLUMN_TYPE_MAP: Record<string, ColumnType> = {
   'หน่วยงาน': 'string',
   'ชื่อบริษัท': 'string',
   'SAP Code': 'string',
+  'SAP_Code': 'string',
   'SAPCode': 'string',
   'ชื่อสินค้า': 'string',
   'Pack Size': 'string',
@@ -54,6 +58,8 @@ ingestRouter.post('/upload', uploadSingle, async (req: Request, res: Response) =
   if (!req.file) return res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'file required' } });
   const anchorMonth = req.body?.anchorMonth as string;
   if (!anchorMonth) return res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'anchorMonth required' } });
+  const actor = resolveRequestActor(req as any);
+
   try {
     const wb = xlsx.read(req.file.buffer, { type: 'buffer' });
     const ws = wb.Sheets[wb.SheetNames[0]];
@@ -111,14 +117,19 @@ ingestRouter.post('/upload', uploadSingle, async (req: Request, res: Response) =
     }
     // Map header fields per docs here (simplified):
     const run = await createRun(anchorMonth, 'upload');
-    let insertedCount = 0;
+    const processedRows = rows.length;
+    let factRowsInserted = 0;
     for (const r of rows) {
-      const companyName = normalizeString(r['ชื่อบริษัท'] ?? r['company_desc']);
-      const companyCode = normalizeString(r['company_code'] ?? r['companyCode'] ?? companyName);
+      const companyName = normalizeString(r['ชื่อบริษัท'] ?? r['companyName']);
+      const companyDesc = normalizeString(r['SAPCode'] ?? r['company_desc'] ?? companyName);
+      const companyCode = normalizeString(
+        r['company_code'] ?? r['customer_code'] ?? r['SAP Code'] ?? r['CUSTOMER_CODE']);
       const deptCode = normalizeString(r['หน่วยงาน'] ?? r['dept_code']);
       const dcCode = normalizeString(r['Distribution Channel'] ?? r['dc_code']);
-      const materialCode = normalizeString(r['SAP Code'] ?? r['SAPCode'] ?? r['material_code']);
       const materialDesc = normalizeString(r['ชื่อสินค้า'] ?? r['material_desc']);
+      const materialCode = normalizeString(
+        r['material_code'] ?? r['materialCode'] ?? materialDesc ?? r['SKU'] ?? r['sku']
+      );
       const packSize = normalizeString(r['Pack Size'] ?? r['pack_size']);
       const uomCode = normalizeString(r['หน่วย'] ?? r['uom_code']);
       if (!companyCode || !deptCode || !dcCode || !materialCode || !packSize || !uomCode) {
@@ -126,7 +137,7 @@ ingestRouter.post('/upload', uploadSingle, async (req: Request, res: Response) =
       }
       const line = {
         company_code: companyCode,
-        company_desc: companyName ?? companyCode,
+        company_desc: companyDesc ?? companyName ?? companyCode,
         dept_code: deptCode,
         dc_code: dcCode,
         dc_desc: normalizeString(r['Distribution Channel Description'] ?? r['dc_desc']) ?? dcCode,
@@ -140,8 +151,7 @@ ingestRouter.post('/upload', uploadSingle, async (req: Request, res: Response) =
         pack_size: packSize,
         uom_code: uomCode,
         months: [] as any[]
-      };
-      const offsets = ['n-2','n-1','n','n+1','n+2','n+3'];
+      };const offsets = ['n-2','n-1','n','n+1','n+2','n+3'];
       const base = anchorMonth;
       const delta = { 'n-2': -2, 'n-1': -1, 'n': 0, 'n+1': 1, 'n+2': 2, 'n+3': 3 } as Record<string, number>;
       for (const k of offsets) {
@@ -162,16 +172,50 @@ ingestRouter.post('/upload', uploadSingle, async (req: Request, res: Response) =
         dim,
         runId: run.run_id,
         source: 'upload',
-        factRowsInserted: createdCount
+        factRowsInserted: createdCount,
+        actor
       });
-      insertedCount += createdCount;
+      factRowsInserted += createdCount;
     }
     const logger = (req as any)?.log;
     logger?.info(
-      { anchorMonth, runId: Number(run.run_id), processedRows: rows.length, insertedCount },
+      {
+        anchorMonth,
+        runId: Number(run.run_id),
+        processedRows,
+        insertedRows: processedRows,
+        factRowsInserted
+      },
       'upload processed successfully'
     );
-    return res.status(202).json({ runId: Number(run.run_id), insertedCount });
+
+    const baseMetadata: Prisma.InputJsonObject = {
+      anchorMonth,
+      processedRows,
+      insertedRows: processedRows,
+      factRowsInserted,
+      runId: run.run_id.toString(),
+      source: 'upload'
+    };
+    await writeAuditLog({
+      service: 'ingest-service',
+      endpoint: '/v1/upload',
+      action: 'POST',
+      recordId: run.run_id.toString(),
+      performedBy: actor.performedBy,
+      userId: actor.user?.id ?? null,
+      userEmail: actor.user?.email ?? null,
+      userUsername: actor.user?.username ?? null,
+      clientId: actor.clientId ?? null,
+      metadata: withActorMetadata(baseMetadata, actor)
+    });
+
+    return res.status(202).json({
+      runId: Number(run.run_id),
+      insertedCount: processedRows,
+      processedRows,
+      factRowsInserted
+    });
   } catch (e: any) {
     return res.status(400).json({ error: { code: 'BAD_REQUEST', message: e.message } });
   }
@@ -190,6 +234,8 @@ ingestRouter.post('/manual', async (req, res) => {
   if (!parsed.success) return res.status(400).json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
   const { anchorMonth, lines } = parsed.data;
   const run = await createRun(anchorMonth, 'manual');
+  let factRowsInserted = 0;
+  const actor = resolveRequestActor(req as any);
   for (const line of lines) {
     const dim = await upsertDimensions(line);
     const createdCount = await insertForecastRows(run.run_id, line, dim, anchorMonth);
@@ -199,8 +245,32 @@ ingestRouter.post('/manual', async (req, res) => {
       dim,
       runId: run.run_id,
       source: 'manual',
-      factRowsInserted: createdCount
+      factRowsInserted: createdCount,
+      actor
     });
+    factRowsInserted += createdCount;
   }
+
+  const baseMetadata: Prisma.InputJsonObject = {
+    anchorMonth,
+    lineCount: lines.length,
+    insertedRows: lines.length,
+    factRowsInserted,
+    runId: run.run_id.toString(),
+    source: 'manual'
+  };
+  await writeAuditLog({
+    service: 'ingest-service',
+    endpoint: '/v1/manual',
+    action: 'POST',
+    recordId: run.run_id.toString(),
+    performedBy: actor.performedBy,
+    userId: actor.user?.id ?? null,
+    userEmail: actor.user?.email ?? null,
+    userUsername: actor.user?.username ?? null,
+    clientId: actor.clientId ?? null,
+    metadata: withActorMetadata(baseMetadata, actor)
+  });
+
   return res.status(201).json({ runId: Number(run.run_id) });
 });

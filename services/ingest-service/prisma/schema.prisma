@@ -137,3 +137,20 @@ model saleforecast {
 
   @@map("saleforecast")
 }
+
+model audit_logs {
+  id            BigInt   @id @default(autoincrement()) @db.BigInt
+  service       String   @db.Text
+  endpoint      String   @db.Text
+  action        String   @db.Text
+  record_id     String?  @db.Text
+  performed_by  String?  @db.Text
+  user_id       String?  @db.Text
+  user_email    String?  @db.Text
+  user_username String?  @db.Text
+  client_id     String?  @db.Text
+  metadata      Json?
+  performed_at  DateTime @default(now())
+
+  @@map("audit_logs")
+}

@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { TokenUtil } from '../utils/token.util';
-import type { TokenPayload } from '../types/auth.types';
+import type { AuthTokenPayload, UserRole } from '../types/auth.types';
 
 declare global {
   namespace Express {
@@ -9,7 +9,7 @@ declare global {
         userId: string;
         username: string;
         email: string;
-        roles: string[];
+        role: UserRole;
         tokenId: string;
       };
     }
@@ -36,14 +36,14 @@ export const requireAuth = (req: Request, res: Response, next: NextFunction): vo
   const token = authHeader.substring(7).trim();
 
   try {
-    const decoded: TokenPayload = TokenUtil.verifyAccessToken(token);
+    const decoded: AuthTokenPayload = TokenUtil.verifyAccessToken(token);
 
-    if (!decoded?.sub) {
+    if (!decoded?.sub || !decoded?.role || !decoded?.jti) {
       res.status(401).json({
         success: false,
         error: {
           code: 'INVALID_TOKEN',
-          message: 'Token payload is missing subject'
+          message: 'Token payload is invalid'
         }
       });
       return;
@@ -53,7 +53,7 @@ export const requireAuth = (req: Request, res: Response, next: NextFunction): vo
       userId: decoded.sub,
       username: decoded.username,
       email: decoded.email,
-      roles: decoded.roles || [],
+      role: decoded.role,
       tokenId: decoded.jti
     };
 

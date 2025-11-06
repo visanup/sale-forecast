@@ -20,6 +20,7 @@ import {
   Unlock
 } from 'lucide-react';
 import { setActiveApiKey } from '../services/apiKeyStorage';
+import { useErrorLog } from '../hooks/useErrorLog';
 
 interface ApiClient {
   clientId: string;
@@ -38,6 +39,7 @@ interface ApiKey {
 }
 
 export function ApiKeysPage() {
+  const { logError } = useErrorLog();
   const [clients, setClients] = useState<ApiClient[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -46,6 +48,27 @@ export function ApiKeysPage() {
   const [newClient, setNewClient] = useState({ name: '', contactEmail: '' });
   const [newKeyScope, setNewKeyScope] = useState('read:forecast');
   const [createdKey, setCreatedKey] = useState<ApiKey | null>(null);
+
+  const reportError = (
+    scope: string,
+    error: any,
+    fallbackMessage: string,
+    context?: Record<string, unknown>
+  ) => {
+    console.error(scope, error);
+    logError({
+      message: fallbackMessage,
+      source: `ApiKeysPage:${scope}`,
+      details: typeof error?.stack === 'string' ? error.stack : undefined,
+      context: {
+        ...context,
+        errorMessage:
+          error?.response?.data?.error?.message ||
+          error?.message ||
+          (typeof error === 'string' ? error : undefined)
+      }
+    });
+  };
 
   useEffect(() => {
     fetchClients();
@@ -60,8 +83,11 @@ export function ApiKeysPage() {
       console.log('Clients data:', response.data);
       setClients(response.data || []);
     } catch (err: any) {
-      console.error('Error fetching clients:', err);
-      setError(err.response?.data?.error?.message || err.message || 'Failed to fetch API clients');
+      const fallback = err?.response?.data?.error?.message || err?.message || 'Failed to fetch API clients';
+      reportError('fetchClients', err, 'ไม่สามารถดึงข้อมูล API Client ได้', {
+        operation: 'GET /api/v1/api-keys/clients'
+      });
+      setError(fallback);
       setClients([]); // Set empty array on error
     } finally {
       setLoading(false);
@@ -76,7 +102,11 @@ export function ApiKeysPage() {
       setShowCreateClient(false);
       fetchClients();
     } catch (err: any) {
-      setError(err.response?.data?.error?.message || 'Failed to create API client');
+      const fallback = err?.response?.data?.error?.message || 'Failed to create API client';
+      reportError('createClient', err, 'ไม่สามารถสร้าง API Client ได้', {
+        payload: newClient
+      });
+      setError(fallback);
     }
   };
 
@@ -96,8 +126,12 @@ export function ApiKeysPage() {
       setNewKeyScope('read:forecast');
       fetchClients();
     } catch (err: any) {
-      console.error('Error creating API key:', err);
-      setError(err.response?.data?.error?.message || 'Failed to create API key');
+      const fallback = err?.response?.data?.error?.message || 'Failed to create API key';
+      reportError('createKey', err, 'ไม่สามารถสร้าง API Key ได้', {
+        clientId,
+        scope: newKeyScope
+      });
+      setError(fallback);
     }
   };
 
@@ -110,7 +144,9 @@ export function ApiKeysPage() {
       await api.delete(`api/v1/api-keys/keys/${keyId}`);
       fetchClients();
     } catch (err: any) {
-      setError(err.response?.data?.error?.message || 'Failed to revoke API key');
+      const fallback = err?.response?.data?.error?.message || 'Failed to revoke API key';
+      reportError('revokeKey', err, 'ไม่สามารถยกเลิก API Key ได้', { keyId });
+      setError(fallback);
     }
   };
 
@@ -123,7 +159,9 @@ export function ApiKeysPage() {
       await api.delete(`api/v1/api-keys/clients/${clientId}`);
       fetchClients();
     } catch (err: any) {
-      setError(err.response?.data?.error?.message || 'Failed to deactivate API client');
+      const fallback = err?.response?.data?.error?.message || 'Failed to deactivate API client';
+      reportError('deactivateClient', err, 'ไม่สามารถปิดการใช้งาน API Client ได้', { clientId });
+      setError(fallback);
     }
   };
 

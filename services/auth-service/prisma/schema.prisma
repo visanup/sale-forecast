@@ -1,6 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
   provider        = "prisma-client-js"
   previewFeatures = ["multiSchema"]
@@ -13,97 +10,56 @@ datasource db {
   schemas  = ["auth"]
 }
 
-// =========================
-// AUTH SCHEMA
-// =========================
-
 model User {
-  id                  String   @id @default(uuid()) @db.Uuid
-  email               String   @unique
-  username            String   @unique
+  id                  String               @id @default(uuid()) @db.Uuid
+  email               String               @unique
+  username            String               @unique
   password            String
   firstName           String?
   lastName            String?
-  isActive            Boolean  @default(true)
-  emailVerified       Boolean  @default(false)
+  role                Role                 @default(USER)
+  isActive            Boolean              @default(true)
+  emailVerified       Boolean              @default(false)
   lastLoginAt         DateTime?
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
-
-  // Relations
-  roles               UserRole[]
-  refreshTokens       RefreshToken[]
-  passwordResetTokens PasswordResetToken[]
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
   auditLogs           AuditLog[]
+  passwordResetTokens PasswordResetToken[]
+  refreshTokens       RefreshToken[]
 
   @@map("users")
   @@schema("auth")
 }
 
-model Role {
-  id          Int       @id @default(autoincrement())
-  name        String    @unique
-  description String?
-  permissions String[]
-  isActive    Boolean   @default(true)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-
-  // Relations
-  users       UserRole[]
-
-  @@map("roles")
-  @@schema("auth")
-}
-
-model UserRole {
-  userId     String   @db.Uuid
-  roleId     Int
-  assignedAt DateTime @default(now())
-  assignedBy String?  @db.Uuid
-
-  // Relations
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
-
-  @@id([userId, roleId])
-  @@map("user_roles")
-  @@schema("auth")
-}
-
 model RefreshToken {
-  id         String   @id @default(uuid()) @db.Uuid
-  userId     String   @db.Uuid
-  token      String   @unique
+  id         String    @id @default(uuid()) @db.Uuid
+  userId     String    @db.Uuid
+  token      String    @unique
   family     String
   deviceInfo String?
   ipAddress  String?
   userAgent  String?
-  issuedAt   DateTime @default(now())
+  issuedAt   DateTime  @default(now())
   expiresAt  DateTime
   revokedAt  DateTime?
-  revokedBy  String?  @db.Uuid
-  reused     Boolean  @default(false)
-
-  // Relations
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  revokedBy  String?   @db.Uuid
+  reused     Boolean   @default(false)
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("refresh_tokens")
   @@schema("auth")
 }
 
 model PasswordResetToken {
-  id        String   @id @default(uuid()) @db.Uuid
-  userId    String   @db.Uuid
-  token     String   @unique
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @db.Uuid
+  token     String    @unique
   expiresAt DateTime
   usedAt    DateTime?
   ipAddress String?
   userAgent String?
-  createdAt DateTime @default(now())
-
-  // Relations
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("password_reset_tokens")
   @@schema("auth")
@@ -119,24 +75,18 @@ model AuditLog {
   ipAddress  String?
   userAgent  String?
   createdAt  DateTime @default(now())
-
-  // Relations
-  user User? @relation(fields: [userId], references: [id])
+  user       User?    @relation(fields: [userId], references: [id])
 
   @@map("audit_logs")
   @@schema("auth")
 }
 
-// =========================
-// API KEY MODELS (for gateway/data access) — keep in auth schema
-// =========================
-
 model api_clients {
-  client_id     BigInt   @id @default(autoincrement()) @db.BigInt
+  client_id     BigInt     @id @default(autoincrement())
   name          String
   contact_email String?
-  created_at    DateTime @default(now())
-  is_active     Boolean  @default(true)
+  created_at    DateTime   @default(now())
+  is_active     Boolean    @default(true)
   keys          api_keys[]
 
   @@map("api_clients")
@@ -144,17 +94,22 @@ model api_clients {
 }
 
 model api_keys {
-  key_id       BigInt   @id @default(autoincrement()) @db.BigInt
+  key_id       BigInt      @id @default(autoincrement())
   client_id    BigInt
   api_key_hash String
-  scope        String?  @default("read:forecast")
-  created_at   DateTime @default(now())
+  scope        String?     @default("read:forecast")
+  created_at   DateTime    @default(now())
   revoked_at   DateTime?
-
-  client api_clients @relation(fields: [client_id], references: [client_id], onDelete: Cascade)
+  client       api_clients @relation(fields: [client_id], references: [client_id], onDelete: Cascade)
 
   @@unique([client_id, api_key_hash])
   @@map("api_keys")
   @@schema("auth")
 }
 
+enum Role {
+  ADMIN
+  USER
+
+  @@schema("auth")
+}

@@ -152,7 +152,7 @@ export class ApiKeyService {
       }
     });
 
-    return clients.map(client => ({
+    return clients.map((client): ApiClientResponse => ({
       clientId: client.client_id.toString(),
       name: client.name,
       ...(client.contact_email && { contactEmail: client.contact_email }),

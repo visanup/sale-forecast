@@ -8,8 +8,8 @@ type Props = {
 
 export function EditableGrid({ headers, rows, onEdit }: Props) {
   return (
-    <section className="overflow-auto rounded-xl border border-slate-300 bg-white shadow-inner dark:border-slate-700 dark:bg-slate-900">
-      <table className="min-w-[900px] border-collapse text-sm">
+    <section className="max-h-[70vh] overflow-x-auto overflow-y-auto rounded-xl border border-slate-300 bg-white shadow-inner dark:border-slate-700 dark:bg-slate-900">
+      <table className="w-full min-w-max border-collapse text-sm">
         <thead className="bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200">
           <tr className="border-b border-slate-300 dark:border-slate-700">
             <th className="sticky left-0 top-0 z-20 border border-slate-300 bg-slate-200 px-4 py-2 text-center text-xs font-semibold uppercase tracking-wide dark:border-slate-600 dark:bg-slate-700">
@@ -35,9 +35,9 @@ export function EditableGrid({ headers, rows, onEdit }: Props) {
                 {rIdx + 1}
               </th>
               {headers.map(h => (
-                <td key={`${rIdx}-${h}`} className="border border-slate-200 px-0 dark:border-slate-700">
+                <td key={`${rIdx}-${h}`} className="border border-slate-200 px-3 py-2 dark:border-slate-700">
                   <input
-                    className="w-full border-none bg-transparent px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-400/70 dark:text-slate-200 dark:focus:ring-emerald-400/60"
+                    className="w-full min-w-[160px] rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-300/60 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200 dark:focus:border-emerald-400 dark:focus:ring-emerald-300/50"
                     value={row[h] === null || row[h] === undefined ? '' : String(row[h])}
                     onChange={e => onEdit(rIdx, h, e.target.value)}
                   />

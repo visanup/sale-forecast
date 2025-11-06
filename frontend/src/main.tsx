@@ -4,6 +4,7 @@ import { createBrowserRouter, RouterProvider, Navigate } from 'react-router-dom'
 import './index.css';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { AuthProvider } from './hooks/useAuth';
+import { ErrorLogProvider } from './hooks/useErrorLog';
 import { RequireAuth } from './components/RequireAuth';
 import { RedirectIfAuthenticated } from './components/RedirectIfAuthenticated';
 import { AppLayout } from './ui/AppLayout';
@@ -16,6 +17,8 @@ import { AdminImportPage } from './pages/AdminImportPage';
 import { ApiPortalPage } from './pages/ApiPortalPage';
 import { ApiKeysPage } from './pages/ApiKeysPage';
 import { LogsPage } from './pages/LogsPage';
+import { GuidePage } from './pages/GuidePage';
+import { ForgotPasswordPage } from './pages/ForgotPasswordPage';
 
 const router = createBrowserRouter([
   {
@@ -33,6 +36,7 @@ const router = createBrowserRouter([
       { path: 'api', element: <ApiPortalPage /> },
       { path: 'api-keys', element: <ApiKeysPage /> },
       { path: 'logs', element: <LogsPage /> },
+      { path: 'guide', element: <GuidePage /> },
       // Backward compatibility after merging pages: redirect old path
       { path: 'manual-entry', element: <Navigate to="/" replace /> }
     ]
@@ -44,6 +48,10 @@ const router = createBrowserRouter([
         <LoginPage />
       </RedirectIfAuthenticated>
     )
+  },
+  {
+    path: '/forgot-password',
+    element: <ForgotPasswordPage />
   },
   {
     path: '/signup',
@@ -58,9 +66,11 @@ const router = createBrowserRouter([
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <ThemeProvider>
-      <AuthProvider>
-        <RouterProvider router={router} />
-      </AuthProvider>
+      <ErrorLogProvider>
+        <AuthProvider>
+          <RouterProvider router={router} />
+        </AuthProvider>
+      </ErrorLogProvider>
     </ThemeProvider>
   </React.StrictMode>
 );

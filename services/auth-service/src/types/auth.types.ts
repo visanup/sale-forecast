@@ -1,23 +1,15 @@
+export type UserRole = 'ADMIN' | 'USER';
+
 export interface User {
   id: string;
   email: string;
   username: string;
+  role: UserRole;
   firstName?: string;
   lastName?: string;
   isActive: boolean;
   emailVerified: boolean;
   lastLoginAt?: Date;
-  createdAt: Date;
-  updatedAt: Date;
-  roles: string[];
-}
-
-export interface Role {
-  id: number;
-  name: string;
-  description?: string;
-  permissions: string[];
-  isActive: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -35,18 +27,31 @@ export interface RegisterData {
   lastName?: string;
 }
 
-export interface TokenPayload {
+export type TokenType = 'access' | 'refresh' | 'password_reset';
+
+export interface BaseTokenPayload {
   sub: string; // User ID
-  email: string;
-  username: string;
-  roles: string[];
-  jti: string; // JWT ID
+  jti?: string; // JWT ID
   iat: number; // Issued at
   exp: number; // Expires at
-  type: 'access' | 'refresh' | 'password_reset'; // Token type
+  type: TokenType; // Token type
   iss?: string; // Issuer
   aud?: string; // Audience
 }
+
+export interface AuthTokenPayload extends BaseTokenPayload {
+  email: string;
+  username: string;
+  role: UserRole;
+  jti: string;
+  type: 'access' | 'refresh';
+}
+
+export interface PasswordResetTokenPayload extends BaseTokenPayload {
+  type: 'password_reset';
+}
+
+export type TokenPayload = AuthTokenPayload | PasswordResetTokenPayload;
 
 export interface AuthResponse {
   accessToken: string;
@@ -75,9 +80,9 @@ export interface UserProfile {
   id: string;
   email: string;
   username: string;
+  role: UserRole;
   firstName?: string;
   lastName?: string;
-  roles: string[];
   emailVerified: boolean;
   lastLoginAt?: Date;
   createdAt: Date;
@@ -97,7 +102,7 @@ export interface UserListQuery {
   page?: number;
   limit?: number;
   search?: string;
-  role?: string;
+  role?: UserRole;
   isActive?: boolean;
 }
 
@@ -111,10 +116,6 @@ export interface PaginatedResponse<T> {
     hasNext: boolean;
     hasPrev: boolean;
   };
-}
-
-export interface RoleAssignment {
-  roleIds: number[];
 }
 
 export interface UserStatusUpdate {

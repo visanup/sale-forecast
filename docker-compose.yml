@@ -45,7 +45,7 @@ services:
     environment:
       - PORT=6601
       - NODE_ENV=production
-      - DATABASE_URL=postgres://postgres:password@postgres:5432/postgres
+      - DATABASE_URL=postgres://postgres:password@postgres:5432/betagro_auth
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - INTERNAL_SHARED_SECRET=dev-internal-secret

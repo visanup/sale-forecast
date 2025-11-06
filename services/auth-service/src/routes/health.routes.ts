@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, Role as PrismaRole } from '@prisma/client';
 
 const prisma = new PrismaClient();
 const router = Router();
@@ -48,13 +48,13 @@ router.get('/metrics', async (_req, res) => {
     const [
       totalUsers,
       activeUsers,
-      totalRoles,
+      adminUsers,
       totalRefreshTokens,
       expiredRefreshTokens
     ] = await Promise.all([
       prisma.user.count(),
       prisma.user.count({ where: { isActive: true } }),
-      prisma.role.count(),
+      prisma.user.count({ where: { role: PrismaRole.ADMIN } }),
       prisma.refreshToken.count(),
       prisma.refreshToken.count({
         where: {
@@ -73,10 +73,9 @@ router.get('/metrics', async (_req, res) => {
         users: {
           total: totalUsers,
           active: activeUsers,
-          inactive: totalUsers - activeUsers
-        },
-        roles: {
-          total: totalRoles
+          inactive: totalUsers - activeUsers,
+          admin: adminUsers,
+          user: totalUsers - adminUsers
         },
         tokens: {
           total: totalRefreshTokens,

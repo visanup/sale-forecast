@@ -296,7 +296,7 @@ export function ManualEntryPage() {
         {lookupError && <div className="text-sm text-red-600 dark:text-red-400">{lookupError}</div>}
       </section>
 
-      <section className="card p-4 overflow-x-auto">
+      <section className="card p-4 overflow-x-auto overflow-y-visible">
         <div className="min-w-[1400px]">
           <table className="w-full text-sm">
             <thead>
@@ -316,6 +316,7 @@ export function ManualEntryPage() {
                       options={companyOptions}
                       inputClassName={comboInputClass}
                       historyKey="manual-entry-company"
+                      showHistory={false}
                     />
                   </td>
                   <td className="py-1 pr-4">
@@ -325,6 +326,7 @@ export function ManualEntryPage() {
                       options={departmentOptions}
                       inputClassName={comboInputClass}
                       historyKey="manual-entry-dept"
+                      showHistory={false}
                     />
                   </td>
                   <td className="py-1 pr-4">
@@ -334,6 +336,7 @@ export function ManualEntryPage() {
                       options={distributionOptions}
                       inputClassName={comboInputClass}
                       historyKey="manual-entry-dc"
+                      showHistory={false}
                     />
                   </td>
                   <td className="py-1 pr-4">
@@ -343,6 +346,7 @@ export function ManualEntryPage() {
                       options={materialOptions}
                       inputClassName={comboInputClass}
                       historyKey="manual-entry-material"
+                      showHistory={false}
                     />
                   </td>
                   <td className="py-1 pr-4"><input className="input px-2 py-1" value={r.material_desc||''} onChange={e=>updateLine(i,'material_desc',e.target.value)} /></td>

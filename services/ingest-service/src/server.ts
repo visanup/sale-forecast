@@ -61,9 +61,17 @@ const STATIC_API_KEY = process.env['API_KEY'] || '';
 const AUTH_VALIDATE_URL = process.env['AUTH_VALIDATE_URL'] || '';
 const INTERNAL_SHARED_SECRET = process.env['INTERNAL_SHARED_SECRET'] || '';
 
-async function isApiKeyValid(key: string, requestId: string): Promise<boolean> {
-  if (!key) return false;
-  if (STATIC_API_KEY && key === STATIC_API_KEY) return true;
+type ApiKeyValidationResult = {
+  valid: boolean;
+  clientId?: string | null;
+  scope?: unknown;
+};
+
+async function validateApiKey(key: string, requestId: string): Promise<ApiKeyValidationResult> {
+  if (!key) return { valid: false };
+  if (STATIC_API_KEY && key === STATIC_API_KEY) {
+    return { valid: true, clientId: 'static-key' };
+  }
   try {
     if (!AUTH_VALIDATE_URL) {
       throw new Error('AUTH_VALIDATE_URL not configured');
@@ -83,11 +91,18 @@ async function isApiKeyValid(key: string, requestId: string): Promise<boolean> {
 
     if (!resp.ok) {
       logger.warn({ requestId, status: resp.status }, 'auth service validation request failed');
-      return false;
+      return { valid: false };
     }
 
-    const data = (await resp.json().catch(() => ({}))) as { valid?: boolean };
-    return Boolean(data?.valid);
+    const data = (await resp.json().catch(() => ({}))) as { valid?: boolean; clientId?: string; scope?: unknown };
+    if (!data?.valid) {
+      return { valid: false };
+    }
+    return {
+      valid: true,
+      clientId: data.clientId ?? null,
+      scope: data.scope
+    };
   } catch (error) {
     logger.error({ requestId, error }, 'failed to validate api key with auth-service');
     throw error;
@@ -99,11 +114,13 @@ app.use('/v1', (req, res, next) => {
   const key = (req.headers['x-api-key'] as string) || '';
   const requestId = (req as any).requestId as string;
 
-  isApiKeyValid(key, requestId)
-    .then((valid) => {
-      if (!valid) {
+  validateApiKey(key, requestId)
+    .then((result) => {
+      if (!result.valid) {
         return res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'invalid api key' } });
       }
+      (req as any).apiClientId = result.clientId ?? null;
+      (req as any).apiScope = result.scope;
       next();
     })
     .catch((error) => {

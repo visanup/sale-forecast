@@ -7,6 +7,7 @@ type SalesForecastFilters = {
   company_desc?: string;
   material_code?: string;
   material_desc?: string;
+  search?: string;
 };
 
 type SalesForecastPayload = {
@@ -23,7 +24,28 @@ function anchorMonthToDate(anchorMonth: string) {
   return new Date(`${anchorMonth}-01T00:00:00.000Z`);
 }
 
-function serializeForecast(record: any) {
+type AuditLogActor = {
+  action: string;
+  performed_at: Date;
+  performed_by: string | null;
+  user_id: string | null;
+  user_email: string | null;
+  user_username: string | null;
+  client_id: string | null;
+};
+
+function buildActorPayload(audit?: AuditLogActor) {
+  if (!audit) return null;
+  return {
+    performed_by: audit.performed_by,
+    user_id: audit.user_id,
+    user_email: audit.user_email,
+    user_username: audit.user_username,
+    client_id: audit.client_id
+  };
+}
+
+function serializeForecast(record: any, audit?: AuditLogActor) {
   const forecastQty = record.forecast_qty
     ? Number(record.forecast_qty.toString())
     : null;
@@ -37,19 +59,52 @@ function serializeForecast(record: any) {
     forecast_qty: forecastQty,
     metadata: record.metadata,
     created_at: record.created_at.toISOString(),
-    updated_at: record.updated_at.toISOString()
+    updated_at: record.updated_at.toISOString(),
+    last_action: audit?.action ?? null,
+    last_performed_at: audit ? audit.performed_at.toISOString() : null,
+    last_actor: buildActorPayload(audit)
   };
 }
 
 export async function listSalesForecast(filters: SalesForecastFilters) {
-  const where: Record<string, unknown> = {
+  const where: Prisma.saleforecastWhereInput = {
     anchor_month: anchorMonthToDate(filters.anchor_month)
   };
 
-  if (filters.company_code) where['company_code'] = filters.company_code;
-  if (filters.company_desc) where['company_desc'] = filters.company_desc;
-  if (filters.material_code) where['material_code'] = filters.material_code;
-  if (filters.material_desc) where['material_desc'] = filters.material_desc;
+  if (filters.company_code) where.company_code = filters.company_code;
+  if (filters.company_desc) where.company_desc = filters.company_desc;
+  if (filters.material_code) where.material_code = filters.material_code;
+  if (filters.material_desc) where.material_desc = filters.material_desc;
+
+  if (filters.search) {
+    const search = filters.search.trim();
+    if (search.length > 0) {
+      const orConditions: Prisma.saleforecastWhereInput[] = [
+        { company_code: { contains: search, mode: 'insensitive' } },
+        { company_desc: { contains: search, mode: 'insensitive' } },
+        { material_code: { contains: search, mode: 'insensitive' } },
+        { material_desc: { contains: search, mode: 'insensitive' } }
+      ];
+
+      const metadataPaths: string[][] = [
+        ['dept_code'],
+        ['dept_desc'],
+        ['department'],
+        ['department_code']
+      ];
+
+      for (const path of metadataPaths) {
+        orConditions.push({
+          metadata: {
+            path,
+            string_contains: search
+          }
+        });
+      }
+
+      where.OR = orConditions;
+    }
+  }
 
   const records = await prisma.saleforecast.findMany({
     where,
@@ -58,10 +113,42 @@ export async function listSalesForecast(filters: SalesForecastFilters) {
       { material_code: 'asc' },
       { id: 'asc' }
     ],
-    take: 1000
+    take: 50000
   });
 
-  return records.map(serializeForecast);
+  const recordIds = records.map((record) => record.id.toString());
+  const auditMap = new Map<string, AuditLogActor>();
+
+  if (recordIds.length > 0) {
+    const audits = await prisma.audit_logs.findMany({
+      where: {
+        record_id: { in: recordIds },
+        service: { in: ['data-service', 'ingest-service'] }
+      },
+      orderBy: [
+        { record_id: 'asc' },
+        { id: 'desc' }
+      ]
+    });
+
+    for (const audit of audits) {
+      const key = audit.record_id;
+      if (!key) continue;
+      if (!auditMap.has(key)) {
+        auditMap.set(key, {
+          action: audit.action,
+          performed_at: audit.performed_at,
+          performed_by: audit.performed_by,
+          user_id: audit.user_id,
+          user_email: audit.user_email,
+          user_username: audit.user_username,
+          client_id: audit.client_id
+        });
+      }
+    }
+  }
+
+  return records.map((record) => serializeForecast(record, auditMap.get(record.id.toString())));
 }
 
 export async function createSalesForecast(payload: SalesForecastPayload) {

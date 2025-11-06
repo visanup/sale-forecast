@@ -1,5 +1,5 @@
 import { Prisma } from '@prisma/client';
-import { prisma } from '../db.js';
+import { prisma } from './ingest.service.js';
 
 type AuditParams = {
   service: string;
@@ -38,8 +38,7 @@ export async function writeAuditLog(params: AuditParams) {
       }
     });
   } catch (error) {
-    // Intentionally swallow errors to avoid breaking request flow,
-    // but surface to stderr for operators.
     console.error('failed_to_write_audit_log', error);
   }
 }
+

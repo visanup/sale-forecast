@@ -9,20 +9,43 @@ import {
   Code,
   Key,
   Database,
-  Settings,
   User,
   LogOut,
   Home,
   Shield,
   Zap,
-  Terminal
+  Terminal,
+  BookOpen
 } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
+import { useErrorLog } from '../hooks/useErrorLog';
+import { ErrorToast } from '../components/ErrorToast';
 
 export function AppLayout() {
+  // Simple role helpers (kept local to avoid cross-page imports)
+  const ADMIN_ROLE_NAME = 'ADMIN';
+  const normalizeRoleName = (value: unknown): string | null => {
+    if (typeof value !== 'string') return null;
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed.toUpperCase() : null;
+  };
+  const userHasAdminRole = (candidate: { roles?: string[] } | Record<string, unknown> | null | undefined): boolean => {
+    if (!candidate) return false;
+    const normalizedRoles = new Set<string>();
+    if (Array.isArray((candidate as any).roles)) {
+      for (const role of (candidate as any).roles) {
+        const normalized = normalizeRoleName(role);
+        if (normalized) normalizedRoles.add(normalized);
+      }
+    }
+    const fallbackRole = normalizeRoleName((candidate as any)?.role);
+    if (fallbackRole) normalizedRoles.add(fallbackRole);
+    return normalizedRoles.has(ADMIN_ROLE_NAME);
+  };
   const [open, setOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const notificationsRef = useRef<HTMLDivElement | null>(null);
+  const { logs, unreadCount, markAllAsRead, clearLogs } = useErrorLog();
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -38,30 +61,31 @@ export function AppLayout() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const notifications = [
-    {
-      id: 'forecast-status',
-      title: 'Latest Forecast Run',
-      description: 'The daily forecast finished successfully.',
-      timestamp: '2h ago',
-    },
-    {
-      id: 'system-health',
-      title: 'System Health',
-      description: 'No issues detected across environments.',
-      timestamp: '6h ago',
-    },
-  ];
-
-  const hasUnreadNotifications = notifications.length > 0;
+  const hasUnreadNotifications = unreadCount > 0;
   const { isAuthenticated, user, logout } = useAuth();
+  const isAdminUser = userHasAdminRole(user as any);
 
   const handleLogout = async () => {
     await logout();
     setOpen(false);
   };
+
+  useEffect(() => {
+    if (notificationsOpen) {
+      markAllAsRead();
+    }
+  }, [notificationsOpen, markAllAsRead]);
+
+  function formatTimestamp(value: number) {
+    return new Date(value).toLocaleString(undefined, {
+      dateStyle: 'medium',
+      timeStyle: 'short'
+    });
+  }
+
   return (
     <div className="min-h-full grid grid-rows-[auto_1fr_auto]">
+      <ErrorToast />
       <nav className="sticky top-0 z-30 bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border-b border-gray-200/60 dark:border-gray-800/60 shadow-sm">
         <div className="w-full px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <Link to="/" className="flex items-center gap-3 font-extrabold text-xl tracking-tight">
@@ -91,6 +115,19 @@ export function AppLayout() {
               <Home size={16} />
               Home
             </NavLink>
+            <NavLink
+              to="/guide"
+              className={({ isActive }) =>
+                `flex items-center gap-2 px-3 py-2 rounded-lg font-medium transition-all duration-200 ${
+                  isActive
+                    ? 'text-brand-600 bg-brand-50 dark:bg-brand-900/20'
+                    : 'text-gray-700 dark:text-gray-300 hover:text-brand-600 hover:bg-gray-50 dark:hover:bg-gray-800'
+                }`
+              }
+            >
+              <BookOpen size={16} />
+              Guide
+            </NavLink>
 
             {isAuthenticated ? (
               <>
@@ -111,35 +148,61 @@ export function AppLayout() {
                     <div className="absolute right-0 mt-3 w-80 rounded-2xl border border-gray-200 bg-white p-3 shadow-2xl dark:border-gray-700 dark:bg-gray-900">
                       <div className="flex items-center justify-between px-2 pb-2">
                         <p className="text-sm font-semibold text-gray-900 dark:text-white">
-                          Notifications
+                          Error Logs
                         </p>
-                        <button
-                          type="button"
-                          className="text-xs font-medium text-brand-600 hover:text-brand-500"
-                          onClick={() => setNotificationsOpen(false)}
-                        >
-                          Close
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            className="text-xs font-medium text-gray-500 hover:text-gray-700 disabled:opacity-50 disabled:hover:text-gray-500 dark:text-gray-400 dark:hover:text-gray-200"
+                            onClick={() => clearLogs()}
+                            disabled={logs.length === 0}
+                          >
+                            Clear
+                          </button>
+                          <button
+                            type="button"
+                            className="text-xs font-medium text-brand-600 hover:text-brand-500"
+                            onClick={() => setNotificationsOpen(false)}
+                          >
+                            Close
+                          </button>
+                        </div>
                       </div>
                       <div className="space-y-2 max-h-64 overflow-auto pr-1">
-                        {notifications.length === 0 ? (
+                        {logs.length === 0 ? (
                           <div className="rounded-xl bg-gray-50 p-3 text-sm text-gray-500 dark:bg-gray-800/80 dark:text-gray-300">
-                            No new notifications right now.
+                            ยังไม่มีข้อผิดพลาดที่บันทึกไว้
                           </div>
                         ) : (
-                          notifications.map((notification) => (
+                          logs.map((log) => (
                             <div
-                              key={notification.id}
-                              className="rounded-xl border border-transparent bg-gray-50 p-3 text-sm text-gray-700 transition hover:border-brand-200 hover:bg-brand-50/60 dark:bg-gray-800/70 dark:text-gray-200 dark:hover:border-brand-400/40"
+                              key={log.id}
+                              className={`rounded-xl border p-3 text-sm transition hover:border-brand-200 hover:bg-brand-50/60 dark:hover:border-brand-400/40 ${
+                                log.read
+                                  ? 'border-transparent bg-gray-50 text-gray-700 dark:border-transparent dark:bg-gray-800/70 dark:text-gray-200'
+                                  : 'border-red-200 bg-red-50 text-gray-900 shadow-sm dark:border-red-500/40 dark:bg-red-500/10 dark:text-gray-100'
+                              }`}
                             >
                               <p className="font-medium text-gray-900 dark:text-white">
-                                {notification.title}
+                                {log.message}
                               </p>
-                              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                                {notification.description}
-                              </p>
+                              {log.source && (
+                                <p className="mt-1 text-xs uppercase tracking-wide text-gray-400 dark:text-gray-500">
+                                  {log.source}
+                                </p>
+                              )}
+                              {log.details && (
+                                <p className="mt-2 text-xs text-gray-500 dark:text-gray-400 break-words">
+                                  {log.details}
+                                </p>
+                              )}
+                              {log.context !== undefined && log.context !== null && (
+                                <p className="mt-2 whitespace-pre-wrap break-words rounded-lg bg-white/60 p-2 text-xs font-mono text-gray-600 ring-1 ring-gray-200 dark:bg-gray-800/60 dark:text-gray-300 dark:ring-gray-700">
+                                  {JSON.stringify(log.context, null, 2)}
+                                </p>
+                              )}
                               <p className="mt-2 text-[11px] uppercase tracking-wide text-gray-400 dark:text-gray-500">
-                                {notification.timestamp}
+                                {formatTimestamp(log.timestamp)}
                               </p>
                             </div>
                           ))
@@ -164,36 +227,39 @@ export function AppLayout() {
                         </p>
                       </div>
 
-                      <NavLink
-                        to="/api"
-                        className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-                      >
-                        <Code size={16} className="text-brand-600" />
-                        <span>API Portal</span>
-                      </NavLink>
-                      <NavLink
-                        to="/api-keys"
-                        className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-                      >
-                        <Key size={16} className="text-purple-600" />
-                        <span>API Keys</span>
-                      </NavLink>
-                      <NavLink
-                        to="/logs"
-                        className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-                      >
-                        <Terminal size={16} className="text-orange-600" />
-                        <span>System Logs</span>
-                      </NavLink>
-                      <NavLink
-                        to="/admin/import"
-                        className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-                      >
-                        <Database size={16} className="text-green-600" />
-                        <span>Admin: Import</span>
-                      </NavLink>
-
-                      <div className="border-t border-gray-100 dark:border-gray-700 my-2"></div>
+                      {isAdminUser && (
+                        <>
+                          <NavLink
+                            to="/api"
+                            className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                          >
+                            <Code size={16} className="text-brand-600" />
+                            <span>API Portal</span>
+                          </NavLink>
+                          <NavLink
+                            to="/api-keys"
+                            className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                          >
+                            <Key size={16} className="text-purple-600" />
+                            <span>API Keys</span>
+                          </NavLink>
+                          <NavLink
+                            to="/logs"
+                            className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                          >
+                            <Terminal size={16} className="text-orange-600" />
+                            <span>System Logs</span>
+                          </NavLink>
+                          <NavLink
+                            to="/admin/import"
+                            className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                          >
+                            <Database size={16} className="text-green-600" />
+                            <span>Admin: Import</span>
+                          </NavLink>
+                          <div className="border-t border-gray-100 dark:border-gray-700 my-2"></div>
+                        </>
+                      )}
 
                       <NavLink
                         to="/profile"
@@ -201,13 +267,6 @@ export function AppLayout() {
                       >
                         <User size={16} className="text-blue-600" />
                         <span>Profile</span>
-                      </NavLink>
-                      <NavLink
-                        to="/settings"
-                        className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-                      >
-                        <Settings size={16} className="text-gray-600" />
-                        <span>Settings</span>
                       </NavLink>
                       <button
                         type="button"
@@ -257,37 +316,50 @@ export function AppLayout() {
                 Home
               </NavLink>
               <NavLink 
-                to="/api" 
+                to="/guide" 
                 onClick={()=>setOpen(false)}
                 className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
               >
-                <Code size={16} />
-                API Portal
+                <BookOpen size={16} />
+                Guide
               </NavLink>
-              <NavLink 
-                to="/api-keys" 
-                onClick={()=>setOpen(false)}
-                className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-              >
-                <Key size={16} />
-                API Keys
-              </NavLink>
-              <NavLink 
-                to="/logs" 
-                onClick={()=>setOpen(false)}
-                className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-              >
-                <Terminal size={16} />
-                System Logs
-              </NavLink>
-              <NavLink 
-                to="/admin/import" 
-                onClick={()=>setOpen(false)}
-                className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-              >
-                <Database size={16} />
-                Admin: Import
-              </NavLink>
+              {isAdminUser && (
+                <>
+                  <NavLink 
+                    to="/api" 
+                    onClick={()=>setOpen(false)}
+                    className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                  >
+                    <Code size={16} />
+                    API Portal
+                  </NavLink>
+                  <NavLink 
+                    to="/api-keys" 
+                    onClick={()=>setOpen(false)}
+                    className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                  >
+                    <Key size={16} />
+                    API Keys
+                  </NavLink>
+                  <NavLink 
+                    to="/logs" 
+                    onClick={()=>setOpen(false)}
+                    className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                  >
+                    <Terminal size={16} />
+                    System Logs
+                  </NavLink>
+                  <NavLink 
+                    to="/admin/import" 
+                    onClick={()=>setOpen(false)}
+                    className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                  >
+                    <Database size={16} />
+                    Admin: Import
+                  </NavLink>
+                  <div className="border-t border-gray-200 dark:border-gray-800 my-2"></div>
+                </>
+              )}
               <div className="border-t border-gray-200 dark:border-gray-800 my-2"></div>
               {isAuthenticated ? (
                 <>
@@ -298,14 +370,6 @@ export function AppLayout() {
                   >
                     <User size={16} />
                     Profile
-                  </NavLink>
-                  <NavLink
-                    to="/settings"
-                    onClick={() => setOpen(false)}
-                    className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-                  >
-                    <Settings size={16} />
-                    Settings
                   </NavLink>
                   <button
                     type="button"

@@ -7,7 +7,8 @@ export const salesForecastQuerySchema = z.object({
   company_code: z.string().trim().min(1).optional(),
   company_desc: z.string().trim().min(1).optional(),
   material_code: z.string().trim().min(1).optional(),
-  material_desc: z.string().trim().min(1).optional()
+  material_desc: z.string().trim().min(1).optional(),
+  search: z.string().trim().min(1).optional()
 });
 
 export const salesForecastCreateSchema = z.object({

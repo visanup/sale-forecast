@@ -5,7 +5,7 @@ describe('TokenUtil', () => {
     sub: 'user-123',
     email: 'user@example.com',
     username: 'user',
-    roles: ['user'],
+    role: 'USER',
     jti: 'family-123'
   };
 
@@ -16,7 +16,7 @@ describe('TokenUtil', () => {
     expect(decoded.type).toBe('access');
     expect(decoded.sub).toBe(payload.sub);
     expect(decoded.email).toBe(payload.email);
-    expect(decoded.roles).toEqual(payload.roles);
+    expect(decoded.role).toBe(payload.role);
   });
 
   it('generates refresh tokens that require the refresh secret', () => {

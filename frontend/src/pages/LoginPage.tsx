@@ -9,16 +9,44 @@ const schema = z.object({
   email: z.string().email(),
   password: z.string().min(6)
 });
-type FormValues = z.infer<typeof schema>;
+type FormValues = z.infer<typeof schema> & { remember?: boolean };
 
 export function LoginPage() {
-  const { register, handleSubmit, formState: { errors, isSubmitting }, setError } = useForm<FormValues>({ resolver: zodResolver(schema) });
+  const storageKey = 'betagro.login.remember';
+  let defaults: Partial<FormValues> = {};
+  try {
+    const saved = typeof window !== 'undefined' ? window.localStorage.getItem(storageKey) : null;
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      defaults = {
+        email: parsed.email || '',
+        password: parsed.password || '',
+        remember: true,
+      } as Partial<FormValues>;
+    }
+  } catch {}
+
+  const { register, handleSubmit, formState: { errors, isSubmitting }, setError } = useForm<FormValues>({
+    resolver: zodResolver(schema),
+    defaultValues: defaults as any,
+  });
   const navigate = useNavigate();
   const { login } = useAuth();
 
   async function onSubmit(values: FormValues) {
     try {
       await login(values.email, values.password);
+      // Remember email/password if opted-in
+      try {
+        if (values.remember) {
+          window.localStorage.setItem(storageKey, JSON.stringify({
+            email: values.email,
+            password: values.password,
+          }));
+        } else {
+          window.localStorage.removeItem(storageKey);
+        }
+      } catch {}
       navigate('/');
     } catch (e: any) {
       setError('root', { message: e.message || 'Login failed' });
@@ -103,7 +131,12 @@ export function LoginPage() {
               {/* Remember Me & Forgot Password */}
               <div className="flex items-center justify-between">
                 <label className="flex items-center">
-                  <input type="checkbox" className="rounded border-gray-300 text-indigo-600 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50" />
+                  <input
+                    type="checkbox"
+                    className="rounded border-gray-300 text-indigo-600 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50"
+                    {...register('remember')}
+                    defaultChecked={Boolean((defaults as any)?.remember)}
+                  />
                   <span className="ml-2 text-sm text-gray-600 dark:text-gray-400">Remember me</span>
                 </label>
                 <Link to="/forgot-password" className="text-sm text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300 transition-colors duration-200">

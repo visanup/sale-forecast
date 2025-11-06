@@ -1,59 +1,45 @@
 # Auth Service
 
-Lightweight authentication and token service.
+Authentication and authorization service for the Betagro sale-forecast platform.
 
-## Run
-- Dev: `yarn dev` (port 6601)
-- Build/Start: `yarn build && yarn start`
+## Role Model
 
-## Env
-- `PORT` (default 6601)
-- `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`
-- `INTERNAL_SHARED_SECRET` (for internal validation)
+- `ADMIN`: Full access to administrative functionality and management endpoints.
+- `USER`: Default role for all registered accounts with limited access to personal resources.
 
-## Endpoints
-- Health: `GET /healthz`, `GET /readyz`, `GET /metrics`
-- Docs (Swagger): `GET /docs`
-- Auth:
-  - `POST /api/v1/auth/register`
-  - `POST /api/v1/auth/login`
-  - `POST /api/v1/auth/refresh`
-  - `POST /api/v1/auth/logout`
-  - `POST /api/v1/auth/forgot-password`
-  - `POST /api/v1/auth/reset-password`
-- API Key Management (requires authentication):
-  - `POST /api/v1/api-keys/clients` - Create API client
-  - `GET /api/v1/api-keys/clients` - List API clients
-  - `GET /api/v1/api-keys/clients/:id` - Get API client
-  - `POST /api/v1/api-keys/clients/:id/keys` - Create API key
-  - `DELETE /api/v1/api-keys/keys/:id` - Revoke API key
-  - `DELETE /api/v1/api-keys/clients/:id` - Deactivate API client
-- Internal:
-  - `POST /internal/validate` headers: `X-Internal-Secret: <INTERNAL_SHARED_SECRET>` body: `{ "apiKey": "..." }` → `{ valid, clientId, scope }`
+The Prisma seed process provisions the following fixed admin accounts (passwords are set via environment or the seed list and must be rotated for production):
 
-## Quick test
+- `qiadmin@betagro.com`
+- `aiadmin@betagro.com`
+- `biadmin@betagro.com`
+- `diadmin@betagro.com`
+
+> Security note: Change the seeded admin passwords and rotate JWT secrets before deploying to production.
+
+## Getting Started
+
 ```bash
-curl -s http://localhost:6601/healthz
-curl -s -H "Content-Type: application/json" -H "X-Internal-Secret: dev-internal-secret" \
-  -d '{"apiKey":"any"}' http://localhost:6601/internal/validate
+cd services/auth-service
+npm install
+npx prisma migrate dev           # or: npm run db:migrate (CI: prisma migrate deploy)
+npm run db:seed
+npm run dev
 ```
 
-## Create Sample API Key
-```bash
-yarn create-api-key
-```
+Additional scripts:
 
-This will create a demo API client and generate an API key that you can use to test the other services.
+- `npm run build` – compile TypeScript
+- `npm run start` – run compiled server
+- `npm run db:migrate` – apply database migrations
+- `npm run db:seed` – execute Prisma seed (`tsx prisma/seed.ts`)
 
-_________________________
+## Key Endpoints
 
-## สิ่งที่แก้ไข
-1. ตัดระบบยืนยันอีเมลออกจาก service (ลบเมธอด `verifyEmail` และ route `/api/v1/auth/verify-email`)
-2. ปรับให้ผู้ใช้ใหม่ถูกสร้างด้วยสถานะ `emailVerified = true` ตั้งแต่ต้น และลดการอัปเดตซ้ำในฐานข้อมูล
-3. ล้างค่าคอนฟิกและ error handler ที่เกี่ยวกับการยืนยันอีเมลเพื่อไม่ให้เหลือ flag หรือข้อความผิดพลาดที่ไม่ถูกใช้งานแล้ว
-4. ปรับ health endpoint ให้รองรับทั้ง `/healthz` และ `/health` เพื่อให้ Docker healthcheck ทำงานสำเร็จ
+- Health checks: `GET /healthz`, `GET /readyz`, `GET /metrics`
+- Swagger docs: `GET /docs`
+- Auth flows: register, login, refresh, logout, password reset under `/api/v1/auth`
+- Profile management: `/api/v1/profile`
+- Admin guard route (requires ADMIN role): `GET /admin/ping` → `{ "ok": true }`
 
-## ขั้นตอน start docker
-1. `npx -y prisma@6.16.3 generate`
-2. `yarn install`
-3. `docker compose build auth-service`
+All issued JWT access tokens carry the `sub`, `email`, and `role` claims so downstream services can enforce role-based access control.
+
