@@ -5,9 +5,16 @@ import {
   salesForecastCreateSchema,
   salesForecastUpdateSchema
 } from '../schemas/saleforecast.schema.js';
-import { listSalesForecast, createSalesForecast, updateSalesForecast, deleteSalesForecast } from '../services/saleforecast.service.js';
+import {
+  listSalesForecast,
+  createSalesForecast,
+  updateSalesForecast,
+  deleteSalesForecast,
+  findSalesForecastRecord
+} from '../services/saleforecast.service.js';
 import { writeAuditLog } from '../services/audit.service.js';
 import { resolveRequestActor, withActorMetadata } from '../utils/requestActor.js';
+import { assertMonthlyAccessUnlocked, MonthlyAccessLockedError } from '../services/monthlyAccessGuard.js';
 
 export const salesForecastRouter = Router();
 
@@ -53,8 +60,13 @@ salesForecastRouter.post('/', async (req, res) => {
   }
 
   try {
-    const record = await createSalesForecast(parsed.data);
     const actor = resolveRequestActor(req as any);
+    await assertMonthlyAccessUnlocked({
+      userEmail: actor.user?.email,
+      userRole: actor.user?.role,
+      anchorMonth: parsed.data.anchor_month
+    });
+    const record = await createSalesForecast(parsed.data);
     const baseMetadata: Prisma.InputJsonObject = {
       body: parsed.data as unknown as Prisma.InputJsonValue
     };
@@ -74,6 +86,11 @@ salesForecastRouter.post('/', async (req, res) => {
     });
     return res.status(201).json({ data: record });
   } catch (error) {
+    if (error instanceof MonthlyAccessLockedError) {
+      return res
+        .status(403)
+        .json({ error: { code: error.code, message: error.message } });
+    }
     console.error('saleforecast:post_error', error);
     return res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Failed to create saleforecast' } });
   }
@@ -93,8 +110,25 @@ salesForecastRouter.put('/:recordId', async (req, res) => {
   }
 
   try {
-    const record = await updateSalesForecast(recordId, parsed.data);
     const actor = resolveRequestActor(req as any);
+    const existing = await findSalesForecastRecord(recordId);
+    if (!existing) {
+      return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Record not found' } });
+    }
+    const currentAnchorMonth = existing.anchor_month.toISOString().slice(0, 7);
+    await assertMonthlyAccessUnlocked({
+      userEmail: actor.user?.email,
+      userRole: actor.user?.role,
+      anchorMonth: currentAnchorMonth
+    });
+    if (parsed.data.anchor_month && parsed.data.anchor_month !== currentAnchorMonth) {
+      await assertMonthlyAccessUnlocked({
+        userEmail: actor.user?.email,
+        userRole: actor.user?.role,
+        anchorMonth: parsed.data.anchor_month
+      });
+    }
+    const record = await updateSalesForecast(recordId, parsed.data);
     const baseMetadata: Prisma.InputJsonObject = {
       body: parsed.data as unknown as Prisma.InputJsonValue
     };
@@ -114,6 +148,11 @@ salesForecastRouter.put('/:recordId', async (req, res) => {
     });
     return res.json({ data: record });
   } catch (error) {
+    if (error instanceof MonthlyAccessLockedError) {
+      return res
+        .status(403)
+        .json({ error: { code: error.code, message: error.message } });
+    }
     console.error('saleforecast:put_error', error);
     if ((error as any)?.code === 'P2025') {
       return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Record not found' } });
@@ -129,8 +168,18 @@ salesForecastRouter.delete('/:recordId', async (req, res) => {
   }
 
   try {
-    const record = await deleteSalesForecast(recordId);
     const actor = resolveRequestActor(req as any);
+    const existing = await findSalesForecastRecord(recordId);
+    if (!existing) {
+      return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Record not found' } });
+    }
+    const existingAnchorMonth = existing.anchor_month.toISOString().slice(0, 7);
+    await assertMonthlyAccessUnlocked({
+      userEmail: actor.user?.email,
+      userRole: actor.user?.role,
+      anchorMonth: existingAnchorMonth
+    });
+    const record = await deleteSalesForecast(recordId);
     const baseMetadata: Prisma.InputJsonObject = {};
 
     await writeAuditLog({
@@ -147,6 +196,11 @@ salesForecastRouter.delete('/:recordId', async (req, res) => {
     });
     return res.json({ data: record });
   } catch (error) {
+    if (error instanceof MonthlyAccessLockedError) {
+      return res
+        .status(403)
+        .json({ error: { code: error.code, message: error.message } });
+    }
     console.error('saleforecast:delete_error', error);
     if ((error as any)?.code === 'P2025') {
       return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Record not found' } });

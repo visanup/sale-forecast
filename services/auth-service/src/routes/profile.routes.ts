@@ -122,4 +122,46 @@ router.put(
   }
 );
 
+router.post(
+  '/change-password',
+  body('currentPassword').isString().notEmpty().withMessage('Current password is required'),
+  body('newPassword').isString().isLength({ min: 8 }).withMessage('New password must be at least 8 characters'),
+  validateRequest,
+  async (req, res) => {
+    try {
+      if (!req.user?.userId) {
+        res.status(401).json({
+          success: false,
+          error: {
+            code: 'UNAUTHORIZED',
+            message: 'Authentication required'
+          }
+        });
+        return;
+      }
+
+      const updatedUser = await authService.changePassword(req.user.userId, req.body, {
+        ipAddress: req.ip || 'unknown',
+        userAgent: req.headers['user-agent'] || 'unknown'
+      });
+
+      const response: ApiResponse = {
+        success: true,
+        data: updatedUser
+      };
+
+      res.json(response);
+    } catch (error: any) {
+      console.error('Change password error:', error);
+      res.status(error.status || 500).json({
+        success: false,
+        error: {
+          code: error.code || 'CHANGE_PASSWORD_FAILED',
+          message: error.message || 'Failed to change password'
+        }
+      });
+    }
+  }
+);
+
 export { router as profileRoutes };

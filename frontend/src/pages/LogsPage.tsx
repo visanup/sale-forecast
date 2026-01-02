@@ -193,6 +193,28 @@ export function LogsPage() {
     }
   };
 
+  const getLevelBadgeClass = (level: string) => {
+    switch (level.toLowerCase()) {
+      case 'error':
+        return 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-200';
+      case 'warn':
+        return 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-200';
+      default:
+        return 'bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-300';
+    }
+  };
+
+  const getLevelTextClass = (level: string) => {
+    switch (level.toLowerCase()) {
+      case 'error':
+        return 'text-red-700 dark:text-red-300';
+      case 'warn':
+        return 'text-yellow-700 dark:text-yellow-300';
+      default:
+        return 'text-gray-900 dark:text-white';
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900">
       {/* Header */}
@@ -382,7 +404,11 @@ export function LogsPage() {
                         <span className="px-2 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-xs font-medium text-gray-700 dark:text-gray-300">
                           {log.service}
                         </span>
-                        <span className="px-2 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
+                        <span
+                          className={`px-2 py-0.5 rounded text-xs font-medium uppercase ${getLevelBadgeClass(
+                            log.level
+                          )}`}
+                        >
                           {log.level}
                         </span>
                         {log.requestId && (
@@ -391,7 +417,7 @@ export function LogsPage() {
                           </span>
                         )}
                       </div>
-                      <p className="text-gray-900 dark:text-white">{log.message}</p>
+                      <p className={getLevelTextClass(log.level)}>{log.message}</p>
                       {hasData && (
                         <details className="mt-2">
                           <summary className="cursor-pointer text-sm text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200">

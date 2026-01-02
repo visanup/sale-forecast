@@ -1,42 +1,36 @@
 ﻿import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ClipboardEvent as ReactClipboardEvent, MouseEvent as ReactMouseEvent } from 'react';
-import { ingestApi } from '../services/api';
+import { dimApi, ingestApi, monthlyAccessMaterialApi } from '../services/api';
 import { useErrorLog } from '../hooks/useErrorLog';
 import { MinusCircle } from 'lucide-react';
 import {
   DimSource,
   type DimCompany,
   type DimDept,
-  type DimDistributionChannel,
   type DimMaterial
 } from '../services/dimSource';
 import ComboInput, { type ComboOption } from './ComboInput';
+import { confirmCrossMonth, getCurrentAnchorMonth } from '../utils/anchorMonth';
+import { formatLineErrorMessage } from '../utils/errorLine';
 
 type Line = {
-  company_code: string;
+  dept_code: string;
   company_desc?: string;
-  dept_code?: string;
-  dc_code?: string; // ใช้เก็บ customer_code (ตามโค้ดเดิมของคุณ)
-  division?: string;
-  sales_organization?: string;
-  sales_office?: string;
-  sales_group?: string;
-  sales_representative?: string;
+  company_code: string;
   material_code: string;
   material_desc?: string;
   pack_size?: string;
   uom_code?: string;
-  n_2?: number; n_1?: number; n?: number; n1?: number; n2?: number; n3?: number;
-  price?: number;
-  distributionChannels?: string; // ใช้เก็บ Distribution Channel ที่แท้จริง
+  n1?: number;
+  n2?: number;
+  n3?: number;
 };
 
 function emptyLine(): Line {
   return {
-    company_code: '',
-    company_desc: '',
     dept_code: '',
-    dc_code: '',
+    company_desc: '',
+    company_code: '',
     material_code: '',
     material_desc: '',
     pack_size: '',
@@ -44,7 +38,7 @@ function emptyLine(): Line {
   };
 }
 
-type ColumnKey = keyof Line | 'n-2' | 'n-1' | 'n+1' | 'n+2' | 'n+3';
+type ColumnKey = keyof Line;
 
 type ComboColumn = {
   key: keyof Line;
@@ -78,31 +72,19 @@ type ManualResizableColumnKey = Extract<ColumnDefinition['key'], string>;
 const MANUAL_COLUMN_MIN_WIDTH = 100;
 
 const DEFAULT_MANUAL_COLUMN_WIDTHS: Partial<Record<ManualResizableColumnKey, number>> = {
-  company_code: 160,
   dept_code: 160,
-  dc_code: 170,
-  division: 150,
-  sales_organization: 180,
-  sales_office: 160,
-  sales_group: 160,
-  sales_representative: 190,
+  company_desc: 220,
+  company_code: 160,
   material_code: 180,
   material_desc: 220,
   pack_size: 140,
   uom_code: 130,
-  n_2: 120,
-  n_1: 120,
-  n: 120,
   n1: 120,
   n2: 120,
-  n3: 120,
-  price: 130,
-  distributionChannels: 190
+  n3: 120
 };
 
 const COLUMN_KEY_ALIASES: Record<string, keyof Line> = {
-  'n-2': 'n_2',
-  'n-1': 'n_1',
   'n+1': 'n1',
   'n+2': 'n2',
   'n+3': 'n3'
@@ -110,6 +92,59 @@ const COLUMN_KEY_ALIASES: Record<string, keyof Line> = {
 function resolveLineKey(key: ColumnDefinition['key']): keyof Line {
   const alias = COLUMN_KEY_ALIASES[String(key)];
   return alias ?? (key as keyof Line);
+}
+
+const REQUIRED_LINE_FIELDS: Array<{ key: keyof Line; label: string }> = [
+  { key: 'dept_code', label: 'หน่วยงาน' },
+  { key: 'company_code', label: 'SAP Code' },
+  { key: 'material_code', label: 'SAPCode' },
+  { key: 'pack_size', label: 'Pack Size' },
+  { key: 'uom_code', label: 'หน่วย' }
+];
+const MONTHLY_ACCESS_CODE_FIELD = 'monthly_access_control_material';
+const MONTHLY_ACCESS_DESC_FIELD = 'monthly_access_control_material_desc';
+
+const MASTER_LOOKUP_LIMIT = 100;
+
+function normalizeLookupValue(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed.length ? trimmed : null;
+  }
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  const fallback = String(value).trim();
+  return fallback.length ? fallback : null;
+}
+
+function normalizeMatchKey(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function findCachedMatch<T extends { code: string }>(cache: Map<string, T>, code: string): T | null {
+  const normalized = normalizeMatchKey(code);
+  for (const item of cache.values()) {
+    if (normalizeMatchKey(item.code) === normalized) return item;
+  }
+  return null;
+}
+
+function buildValueOptions(values: Iterable<string>): ComboOption[] {
+  const map = new Map<string, ComboOption>();
+  for (const value of values) {
+    const trimmed = value.trim();
+    if (!trimmed) continue;
+    if (!map.has(trimmed)) {
+      map.set(trimmed, { value: trimmed, label: trimmed, searchValues: [trimmed] });
+    }
+  }
+  return Array.from(map.values()).sort((a, b) => a.value.localeCompare(b.value));
+}
+
+function mergeValueOptions(...groups: ComboOption[][]): ComboOption[] {
+  const values: string[] = [];
+  groups.forEach(options => options.forEach(option => values.push(option.value)));
+  return buildValueOptions(values);
 }
 
 function extractCustomerCode(company: DimCompany | undefined | null): string | null {
@@ -146,12 +181,20 @@ function extractCustomerCode(company: DimCompany | undefined | null): string | n
 
 export function ManualEntryForm() {
   const { logError } = useErrorLog();
-  const [anchorMonth, setAnchorMonth] = useState('');
+  const [anchorMonth, setAnchorMonth] = useState(() => getCurrentAnchorMonth());
   const [lines, setLines] = useState<Line[]>([emptyLine()]);
   const [companyCache, setCompanyCache] = useState<Map<string, DimCompany>>(() => new Map());
   const [deptCache, setDeptCache] = useState<Map<string, DimDept>>(() => new Map());
-  const [dcCache, setDcCache] = useState<Map<string, DimDistributionChannel>>(() => new Map());
   const [materialCache, setMaterialCache] = useState<Map<string, DimMaterial>>(() => new Map());
+  const skuCacheRef = useRef<Map<string, Set<string> | null>>(new Map());
+  const monthlyAccessCacheRef = useRef<Map<string, Map<string, string | null>>>(new Map());
+  const monthlyAccessPromiseRef = useRef<Map<string, Promise<Map<string, string | null>>>>(new Map());
+  const skuOptionsCacheRef = useRef<Map<string, { packSizes: ComboOption[]; uoms: ComboOption[] }>>(
+    new Map()
+  );
+  const skuOptionsPromiseRef = useRef<Map<string, Promise<{ packSizes: ComboOption[]; uoms: ComboOption[] }>>>(
+    new Map()
+  );
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [columnWidths, setColumnWidths] = useState<Partial<Record<ManualResizableColumnKey, number>>>({});
@@ -249,17 +292,6 @@ export function ManualEntryForm() {
     });
   }, []);
 
-  const mergeDcCache = useCallback((items: DimDistributionChannel[]) => {
-    if (!items.length) return;
-    setDcCache(prev => {
-      const next = new Map(prev);
-      items.forEach(item => {
-        if (item.code) next.set(item.code, item);
-      });
-      return next;
-    });
-  }, []);
-
   const mergeMaterialCache = useCallback((items: DimMaterial[]) => {
     if (!items.length) return;
     setMaterialCache(prev => {
@@ -286,16 +318,6 @@ export function ManualEntryForm() {
       value: item.code,
       label: item.label ?? item.code,
       searchValues: [item.code, item.label ?? ''],
-      data: item
-    }),
-    []
-  );
-
-  const toDcOption = useCallback(
-    (item: DimDistributionChannel): ComboOption<DimDistributionChannel> => ({
-      value: item.code,
-      label: item.label ?? item.code,
-      searchValues: [item.code, item.label ?? '', item.description ?? ''],
       data: item
     }),
     []
@@ -345,20 +367,6 @@ export function ManualEntryForm() {
     [captureError, mergeDeptCache, toDeptOption]
   );
 
-  const searchDistributionChannels = useCallback(
-    async (query: string) => {
-      try {
-        const items = await DimSource.fetchDistributionChannels({ search: query || undefined, limit: 25 });
-        mergeDcCache(items);
-        return items.map(toDcOption);
-      } catch (error) {
-        captureError('fetchDistributionChannels', error, 'ไม่สามารถค้นหา Distribution Channel ได้', { query });
-        return [];
-      }
-    },
-    [captureError, mergeDcCache, toDcOption]
-  );
-
   const searchMaterials = useCallback(
     async (query: string) => {
       try {
@@ -381,22 +389,89 @@ export function ManualEntryForm() {
     () => Array.from(deptCache.values()).map(toDeptOption),
     [deptCache, toDeptOption]
   );
-  const dcOptions = useMemo(() => Array.from(dcCache.values()).map(toDcOption), [dcCache, toDcOption]);
   const materialOptions = useMemo(
     () => Array.from(materialCache.values()).map(toMaterialOption),
     [materialCache, toMaterialOption]
+  );
+  const packSizeOptions = useMemo(() => {
+    const values: string[] = [];
+    materialCache.forEach(material => {
+      const packSize = normalizeLookupValue(material.packSize);
+      if (packSize) values.push(packSize);
+    });
+    return buildValueOptions(values);
+  }, [materialCache]);
+  const uomOptions = useMemo(() => {
+    const values: string[] = [];
+    materialCache.forEach(material => {
+      const uom = normalizeLookupValue(material.uom);
+      if (uom) values.push(uom);
+    });
+    return buildValueOptions(values);
+  }, [materialCache]);
+
+  const fetchSkuOptions = useCallback(
+    async (query: string) => {
+      const normalized = normalizeMatchKey(query || '__all__');
+      const cached = skuOptionsCacheRef.current.get(normalized);
+      if (cached) return cached;
+      const pending = skuOptionsPromiseRef.current.get(normalized);
+      if (pending) return pending;
+      const request = (async () => {
+        try {
+          const response = await dimApi.skus({ search: query || undefined, limit: MASTER_LOOKUP_LIMIT });
+          const packSizes: string[] = [];
+          const uoms: string[] = [];
+          (response?.data ?? []).forEach((item: any) => {
+            const packSize = normalizeLookupValue(item?.packSize ?? item?.pack_size);
+            const uom = normalizeLookupValue(item?.uomCode ?? item?.uom_code ?? item?.uom);
+            if (packSize) packSizes.push(packSize);
+            if (uom) uoms.push(uom);
+          });
+          const result = {
+            packSizes: buildValueOptions(packSizes),
+            uoms: buildValueOptions(uoms)
+          };
+          skuOptionsCacheRef.current.set(normalized, result);
+          return result;
+        } catch (error) {
+          captureError('fetchSkuOptions', error, 'ไม่สามารถดึงรายการ Pack Size/หน่วย ได้', { query });
+          return { packSizes: [], uoms: [] };
+        } finally {
+          skuOptionsPromiseRef.current.delete(normalized);
+        }
+      })();
+      skuOptionsPromiseRef.current.set(normalized, request);
+      return request;
+    },
+    [captureError]
+  );
+  const searchPackSizes = useCallback(
+    async (query: string) => {
+      const skuResult = await fetchSkuOptions(query);
+      const combined = mergeValueOptions(packSizeOptions, skuResult.packSizes);
+      if (!query) return combined;
+      const normalized = normalizeMatchKey(query);
+      return combined.filter(option => normalizeMatchKey(option.value).includes(normalized));
+    },
+    [fetchSkuOptions, packSizeOptions]
+  );
+  const searchUoms = useCallback(
+    async (query: string) => {
+      const skuResult = await fetchSkuOptions(query);
+      const combined = mergeValueOptions(uomOptions, skuResult.uoms);
+      if (!query) return combined;
+      const normalized = normalizeMatchKey(query);
+      return combined.filter(option => normalizeMatchKey(option.value).includes(normalized));
+    },
+    [fetchSkuOptions, uomOptions]
   );
 
   useEffect(() => {
     let active = true;
     const preload = async () => {
       try {
-        await Promise.all([
-          searchCompanies(''),
-          searchDepts(''),
-          searchDistributionChannels(''),
-          searchMaterials('')
-        ]);
+        await Promise.all([searchCompanies(''), searchDepts(''), searchMaterials('')]);
       } catch (error) {
         captureError('preloadDimensions', error, 'ไม่สามารถโหลดข้อมูลอ้างอิงได้ล่วงหน้า');
       }
@@ -407,7 +482,268 @@ export function ManualEntryForm() {
     return () => {
       active = false;
     };
-  }, [captureError, searchCompanies, searchDepts, searchDistributionChannels, searchMaterials]);
+  }, [captureError, searchCompanies, searchDepts, searchMaterials]);
+
+  const resolveCompanyByCode = async (code: string): Promise<DimCompany | null> => {
+    const cached = findCachedMatch(companyCache, code);
+    if (cached) return cached;
+    const items = await DimSource.fetchCompanies({ search: code, limit: MASTER_LOOKUP_LIMIT });
+    if (items.length) mergeCompanyCache(items);
+    const normalized = normalizeMatchKey(code);
+    return items.find((item) => normalizeMatchKey(item.code) === normalized) ?? null;
+  };
+
+  const resolveDeptByCode = async (code: string): Promise<DimDept | null> => {
+    const cached = findCachedMatch(deptCache, code);
+    if (cached) return cached;
+    const items = await DimSource.fetchDepts({ search: code, limit: MASTER_LOOKUP_LIMIT });
+    if (items.length) mergeDeptCache(items);
+    const normalized = normalizeMatchKey(code);
+    return items.find((item) => normalizeMatchKey(item.code) === normalized) ?? null;
+  };
+
+  const resolveMaterialByCode = async (code: string): Promise<DimMaterial | null> => {
+    const cached = findCachedMatch(materialCache, code);
+    if (cached) return cached;
+    const items = await DimSource.fetchMaterials({ search: code, limit: MASTER_LOOKUP_LIMIT });
+    if (items.length) mergeMaterialCache(items);
+    const normalized = normalizeMatchKey(code);
+    return items.find((item) => normalizeMatchKey(item.code) === normalized) ?? null;
+  };
+
+  const resolveSkuCombos = async (materialCode: string): Promise<Set<string> | null> => {
+    const normalizedCode = normalizeMatchKey(materialCode);
+    const cached = skuCacheRef.current.get(normalizedCode);
+    if (skuCacheRef.current.has(normalizedCode)) return cached ?? null;
+    try {
+      const response = await dimApi.skus({ search: materialCode, limit: MASTER_LOOKUP_LIMIT });
+      const combos = new Set<string>();
+      (response?.data ?? []).forEach((item: any) => {
+        const code = item?.materialCode ?? item?.material_code ?? '';
+        if (normalizeMatchKey(String(code)) !== normalizedCode) return;
+        const packSize = normalizeLookupValue(item?.packSize ?? item?.pack_size);
+        const uomCode = normalizeLookupValue(item?.uomCode ?? item?.uom_code);
+        if (!packSize || !uomCode) return;
+        combos.add(`${normalizeMatchKey(packSize)}|${normalizeMatchKey(uomCode)}`);
+      });
+      skuCacheRef.current.set(normalizedCode, combos);
+      return combos;
+    } catch (error: any) {
+      logError({
+        message: 'ไม่สามารถตรวจสอบ Pack Size/หน่วย จาก Master ได้บางรายการ',
+        source: 'ManualEntryForm:skuLookup',
+        severity: 'warning',
+        context: {
+          materialCode,
+          error: error?.message || String(error)
+        }
+      });
+      skuCacheRef.current.set(normalizedCode, null);
+      return null;
+    }
+  };
+
+  const loadMonthlyAccessMaterialMap = useCallback(
+    async (anchorMonth: string): Promise<Map<string, string | null>> => {
+      const normalizedMonth = anchorMonth.trim();
+      if (!normalizedMonth) return new Map();
+      const cached = monthlyAccessCacheRef.current.get(normalizedMonth);
+      if (cached) return cached;
+      const pending = monthlyAccessPromiseRef.current.get(normalizedMonth);
+      if (pending) return pending;
+      const request = (async () => {
+        const map = new Map<string, string | null>();
+        let cursor: string | undefined;
+        do {
+          const response = await monthlyAccessMaterialApi.list({
+            anchor_month: normalizedMonth,
+            limit: MASTER_LOOKUP_LIMIT,
+            cursor
+          });
+          (response?.data ?? []).forEach((item) => {
+            const code = normalizeLookupValue(item.material_code);
+            if (!code) return;
+            const desc = normalizeLookupValue(item.material_desc);
+            map.set(normalizeMatchKey(code), desc);
+          });
+          cursor = response?.paging?.next ?? undefined;
+        } while (cursor);
+        return map;
+      })();
+      monthlyAccessPromiseRef.current.set(normalizedMonth, request);
+      try {
+        const result = await request;
+        monthlyAccessCacheRef.current.set(normalizedMonth, result);
+        return result;
+      } catch (error) {
+        monthlyAccessCacheRef.current.delete(normalizedMonth);
+        throw error;
+      } finally {
+        monthlyAccessPromiseRef.current.delete(normalizedMonth);
+      }
+    },
+    []
+  );
+
+  async function validateLinesAgainstMaster(linesToValidate: Line[]) {
+    const errorIssues: Array<{ row: number; field: string; value: string }> = [];
+    const warningIssues: Array<{ row: number; field: string; value: string }> = [];
+
+    const deptCodes = new Set<string>();
+    const companyCodes = new Set<string>();
+    const materialCodes = new Set<string>();
+
+    linesToValidate.forEach((line) => {
+      const deptCode = normalizeLookupValue(line.dept_code);
+      const companyCode = normalizeLookupValue(line.company_code);
+      const materialCode = normalizeLookupValue(line.material_code);
+      if (deptCode) deptCodes.add(deptCode);
+      if (companyCode) companyCodes.add(companyCode);
+      if (materialCode) materialCodes.add(materialCode);
+    });
+
+    let deptMap = new Map<string, DimDept>();
+    let companyMap = new Map<string, DimCompany>();
+    let materialMap = new Map<string, DimMaterial>();
+    let skuMap = new Map<string, Set<string> | null>();
+    let monthlyAccessMap: Map<string, string | null> | null = null;
+    let monthlyAccessLookupFailure: string | undefined;
+
+    try {
+      const [deptMatches, companyMatches, materialMatches, skuMatches] = await Promise.all([
+        Promise.all(
+          Array.from(deptCodes.values()).map(async (code) => [code, await resolveDeptByCode(code)] as const)
+        ),
+        Promise.all(
+          Array.from(companyCodes.values()).map(async (code) => [code, await resolveCompanyByCode(code)] as const)
+        ),
+        Promise.all(
+          Array.from(materialCodes.values()).map(async (code) => [code, await resolveMaterialByCode(code)] as const)
+        ),
+        Promise.all(
+          Array.from(materialCodes.values()).map(async (code) => [code, await resolveSkuCombos(code)] as const)
+        )
+      ]);
+
+      deptMatches.forEach(([code, match]) => {
+        if (match) deptMap.set(normalizeMatchKey(code), match);
+      });
+      companyMatches.forEach(([code, match]) => {
+        if (match) companyMap.set(normalizeMatchKey(code), match);
+      });
+      materialMatches.forEach(([code, match]) => {
+        if (match) materialMap.set(normalizeMatchKey(code), match);
+      });
+      skuMatches.forEach(([code, match]) => {
+        skuMap.set(normalizeMatchKey(code), match);
+      });
+      try {
+        monthlyAccessMap = await loadMonthlyAccessMaterialMap(anchorMonth);
+      } catch (error: any) {
+        monthlyAccessLookupFailure =
+          error?.message || 'failed to load monthly_access_control_material data';
+      }
+    } catch (error) {
+      throw error;
+    }
+
+    linesToValidate.forEach((line, index) => {
+      const rowNumber = index + 1;
+      const deptCode = normalizeLookupValue(line.dept_code) ?? '';
+      const companyCode = normalizeLookupValue(line.company_code) ?? '';
+      const companyDesc = normalizeLookupValue(line.company_desc) ?? '';
+      const materialCode = normalizeLookupValue(line.material_code) ?? '';
+      const materialDesc = normalizeLookupValue(line.material_desc) ?? '';
+      const packSize = normalizeLookupValue(line.pack_size) ?? '';
+      const uomCode = normalizeLookupValue(line.uom_code) ?? '';
+
+      if (!deptCode || !deptMap.has(normalizeMatchKey(deptCode))) {
+        errorIssues.push({ row: rowNumber, field: 'หน่วยงาน', value: deptCode });
+      }
+
+      if (!companyCode || !companyMap.has(normalizeMatchKey(companyCode))) {
+        errorIssues.push({ row: rowNumber, field: 'CUSTOMER_CODE', value: companyCode });
+      } else {
+        const company = companyMap.get(normalizeMatchKey(companyCode));
+        const masterDesc = normalizeLookupValue(company?.description ?? company?.label);
+        if (!companyDesc || !masterDesc || normalizeMatchKey(companyDesc) !== normalizeMatchKey(masterDesc)) {
+          errorIssues.push({ row: rowNumber, field: 'ชื่อบริษัท', value: companyDesc });
+        }
+      }
+
+      if (!materialCode || !materialMap.has(normalizeMatchKey(materialCode))) {
+        warningIssues.push({ row: rowNumber, field: 'MATERIAL_CODE', value: materialCode });
+      } else {
+        const material = materialMap.get(normalizeMatchKey(materialCode));
+        const masterDesc = normalizeLookupValue(material?.description ?? material?.label);
+        if (!materialDesc || !masterDesc || normalizeMatchKey(materialDesc) !== normalizeMatchKey(masterDesc)) {
+          warningIssues.push({ row: rowNumber, field: 'ชื่อสินค้า', value: materialDesc });
+        }
+
+        if (!packSize || !uomCode) {
+          warningIssues.push({
+            row: rowNumber,
+            field: 'PACK SIZE/หน่วย',
+            value: `${packSize || '-'} / ${uomCode || '-'}`
+          });
+        } else {
+          const combos = skuMap.get(normalizeMatchKey(materialCode));
+          if (combos) {
+            const comboKey = `${normalizeMatchKey(packSize)}|${normalizeMatchKey(uomCode)}`;
+            if (!combos.has(comboKey)) {
+              warningIssues.push({
+                row: rowNumber,
+                field: 'PACK SIZE/หน่วย',
+                value: `${packSize} / ${uomCode}`
+              });
+            }
+          }
+        }
+      }
+
+      if (monthlyAccessMap && materialCode) {
+        const normalizedCode = normalizeMatchKey(materialCode);
+        const hasAccess = monthlyAccessMap.has(normalizedCode);
+        const accessDesc = monthlyAccessMap.get(normalizedCode);
+        if (!hasAccess) {
+          warningIssues.push({
+            row: rowNumber,
+            field: MONTHLY_ACCESS_CODE_FIELD,
+            value: materialCode
+          });
+        } else if (accessDesc) {
+          if (!materialDesc || normalizeMatchKey(materialDesc) !== normalizeMatchKey(accessDesc)) {
+            warningIssues.push({
+              row: rowNumber,
+              field: MONTHLY_ACCESS_DESC_FIELD,
+              value: materialDesc || '-'
+            });
+          }
+        }
+      }
+    });
+
+    const errorMessages = errorIssues.map(
+      (issue) => `บรรทัดที่ ${issue.row}: ${issue.field} "${issue.value}" ไม่ตรงกับ Master`
+    );
+    const warningMessages = warningIssues.map((issue) => {
+      if (issue.field === MONTHLY_ACCESS_CODE_FIELD) {
+        return `บรรทัดที่ ${issue.row}: material_code "${issue.value}" ไม่พบใน monthly_access_control_material`;
+      }
+      if (issue.field === MONTHLY_ACCESS_DESC_FIELD) {
+        return `บรรทัดที่ ${issue.row}: material_desc "${issue.value}" ไม่ตรงกับ monthly_access_control_material`;
+      }
+      return `บรรทัดที่ ${issue.row}: ${issue.field} "${issue.value}" ไม่ตรงกับ Master`;
+    });
+
+    return {
+      errorMessages,
+      warningMessages,
+      errorIssues,
+      warningIssues,
+      monthlyAccessLookupFailure
+    };
+  }
 
   function updateLine(idx: number, key: keyof Line, value: string) {
     const trimmed = value.trim();
@@ -440,17 +776,10 @@ export function ManualEntryForm() {
       'company_code',
       'company_desc',
       'dept_code',
-      'dc_code',
-      'division',
-      'sales_organization',
-      'sales_office',
-      'sales_group',
-      'sales_representative',
       'material_code',
       'material_desc',
       'pack_size',
-      'uom_code',
-      'distributionChannels'
+      'uom_code'
     ];
 
     const sanitizedLines = lines.map(line => {
@@ -471,48 +800,95 @@ export function ManualEntryForm() {
       setMessage('Please select anchor month');
       return;
     }
-    if (sanitizedLines.some(l => !l.material_code)) {
-      setMessage('material_code is required');
+
+    for (let i = 0; i < sanitizedLines.length; i += 1) {
+      const line = sanitizedLines[i];
+      const missingFields = REQUIRED_LINE_FIELDS.filter(({ key }) => {
+        const value = line[key];
+        if (typeof value === 'string') {
+          return value.trim().length === 0;
+        }
+        return value === undefined || value === null;
+      });
+      if (missingFields.length > 0) {
+        setMessage(
+          `บรรทัดที่ ${i + 1} ขาดข้อมูล: ${missingFields.map((field) => field.label).join(', ')}`
+        );
+        return;
+      }
+    }
+
+    let masterValidation: Awaited<ReturnType<typeof validateLinesAgainstMaster>>;
+    try {
+      masterValidation = await validateLinesAgainstMaster(sanitizedLines);
+    } catch (error: any) {
+      const fallbackMessage = 'ไม่สามารถตรวจสอบข้อมูลกับ Master ได้ กรุณาลองใหม่อีกครั้ง';
+      captureError('masterValidation', error, fallbackMessage, { lines: sanitizedLines.length });
+      setMessage(fallbackMessage);
+      return;
+    }
+    if (masterValidation.monthlyAccessLookupFailure) {
+      logError({
+        message: 'ไม่สามารถตรวจสอบ monthly_access_control_material ได้',
+        source: 'ManualEntryForm:monthlyAccessMaterial',
+        severity: 'warning',
+        context: { error: masterValidation.monthlyAccessLookupFailure }
+      });
+    }
+
+    if (masterValidation.errorMessages.length > 0) {
+      const preview = masterValidation.errorMessages.slice(0, 5).join('; ');
+      setMessage(
+        `พบข้อมูลไม่ตรงกับ Master ${masterValidation.errorMessages.length} จุด: ${preview}`
+      );
+      logError({
+        message: 'พบข้อมูลไม่ตรงกับ Master (Error)',
+        source: 'ManualEntryForm:masterValidation',
+        context: masterValidation.errorIssues.slice(0, 50)
+      });
+      return;
+    }
+
+    if (masterValidation.warningMessages.length > 0) {
+      logError({
+        message: 'พบข้อมูลไม่ตรงกับ Master (Warning)',
+        source: 'ManualEntryForm:masterValidation',
+        severity: 'warning',
+        context: masterValidation.warningIssues.slice(0, 50)
+      });
+      const confirmed = window.confirm(
+        `พบข้อมูลไม่ตรงกับ Master (Warning) ${masterValidation.warningMessages.length} จุด ต้องการยืนยันการส่งข้อมูลหรือไม่?`
+      );
+      if (!confirmed) {
+        setMessage('ยกเลิกการส่งข้อมูล');
+        return;
+      }
+    }
+
+    if (!confirmCrossMonth(anchorMonth, { contextLabel: 'Manual Entry' })) {
+      setMessage('ยกเลิกการส่งข้อมูล');
       return;
     }
 
     setSubmitting(true);
     try {
       const payloadLines = sanitizedLines.map(line => {
-        const rawCompanyCode = line.company_code?.trim() ?? '';
-        const customerCode = line.dc_code?.trim() ?? '';
-        const resolvedCustomerCode = customerCode || rawCompanyCode;
-
-        // ใช้ distributionChannels ถ้ามี ไม่งั้นว่าง (อย่าไปชนกับ dc_code ซึ่งใช้เป็น customer_code)
-        const distributionChannel = (line.distributionChannels ?? '').trim();
-
         const companyDesc = line.company_desc?.trim();
-        const resolvedCompanyDesc =
-          companyDesc && companyDesc.length > 0 ? companyDesc : rawCompanyCode || resolvedCustomerCode;
+        const resolvedCompanyDesc = companyDesc && companyDesc.length > 0 ? companyDesc : line.company_code;
+        const materialDesc = line.material_desc?.trim();
+        const resolvedMaterialDesc = materialDesc && materialDesc.length > 0 ? materialDesc : line.material_code;
 
         return {
-          company_code: resolvedCustomerCode,
+          company_code: line.company_code,
           company_desc: resolvedCompanyDesc,
-          Company_code: resolvedCustomerCode,
-          dept_code: line.dept_code ?? '',
-          dc_code: distributionChannel, // ช่องส่งออกสำหรับ API ฝั่งคุณตั้งชื่อแบบนี้
-          division: line.division,
-          sales_organization: line.sales_organization,
-          sales_office: line.sales_office,
-          sales_group: line.sales_group,
-          sales_representative: line.sales_representative,
-          material_code: line.material_code || '',
-          material_desc: line.material_desc ?? '',
+          dept_code: line.dept_code,
+          material_code: line.material_code,
+          material_desc: resolvedMaterialDesc,
           pack_size: line.pack_size ?? '',
           uom_code: line.uom_code ?? '',
-          n_2: line.n_2,
-          n_1: line.n_1,
-          n: line.n,
           n1: line.n1,
           n2: line.n2,
-          n3: line.n3,
-          price: line.price,
-          distributionChannels: line.distributionChannels ?? ''
+          n3: line.n3
         };
       });
 
@@ -520,11 +896,12 @@ export function ManualEntryForm() {
       setMessage(`Submitted. runId=${res.runId}`);
       setLines([emptyLine()]);
     } catch (e: any) {
-      captureError('submitManual', e, 'ส่งข้อมูลไม่สำเร็จ', {
+      const friendlyMessage = formatLineErrorMessage(e?.message, 'ส่งข้อมูลไม่สำเร็จ');
+      captureError('submitManual', e, friendlyMessage, {
         anchorMonth,
         lines: sanitizedLines.length
       });
-      setMessage(e?.message || 'Submit failed');
+      setMessage(friendlyMessage);
     } finally {
       setSubmitting(false);
     }
@@ -565,13 +942,9 @@ export function ManualEntryForm() {
             company.code.trim();
           const next: Line = {
             ...line,
-            company_code: company.code.trim(),
+            company_code: (customerCode || company.code).trim(),
             company_desc: companyDesc
           };
-          if (customerCode) {
-            // เก็บไว้ที่ dc_code ตามความหมายเดิมของโปรเจ็กต์คุณ (customer_code)
-            next.dc_code = customerCode.trim();
-          }
           return next;
         })
       );
@@ -603,22 +976,6 @@ export function ManualEntryForm() {
     []
   );
 
-  const handleDistributionChannelSelect = useCallback(
-    (rowIndex: number, option: ComboOption<DimDistributionChannel>) => {
-      const dc = option?.data;
-      setLines(prev =>
-        prev.map((line, idx) => {
-          if (idx !== rowIndex) return line;
-          return {
-            ...line,
-            distributionChannels: (dc?.code || option?.value || '').trim()
-          };
-        })
-      );
-    },
-    []
-  );
-
   const columns: ColumnDefinition[] = useMemo(
     () => [
       {
@@ -642,17 +999,17 @@ export function ManualEntryForm() {
       },
       {
         key: 'company_code',
-        label: 'customer_code',
+        label: 'SAP Code',
         type: 'combo',
         options: companyOptions,
         onSearch: searchCompanies,
         historyKey: 'manual:company',
-        placeholder: 'เลือกรหัสลูกค้า',
+        placeholder: 'ระบุ SAP Code ของลูกค้า',
         onSelectOption: handleCompanyCodeOptionSelect
       },
       {
         key: 'material_code',
-        label: 'material_code',
+        label: 'SAPCode',
         type: 'combo',
         options: materialOptions,
         onSearch: searchMaterials,
@@ -661,50 +1018,44 @@ export function ManualEntryForm() {
         onSelectOption: handleMaterialOptionSelect
       },
       { key: 'material_desc', label: 'ชื่อสินค้า' },
-      { key: 'pack_size', label: 'Pack Size' },
-      { key: 'uom_code', label: 'หน่วย' },
+      {
+        key: 'pack_size',
+        label: 'Pack Size',
+        type: 'combo',
+        options: packSizeOptions,
+        onSearch: searchPackSizes,
+        historyKey: 'manual:pack-size',
+        placeholder: 'เลือก Pack Size'
+      },
+      {
+        key: 'uom_code',
+        label: 'หน่วย',
+        type: 'combo',
+        options: uomOptions,
+        onSearch: searchUoms,
+        historyKey: 'manual:uom',
+        placeholder: 'เลือกหน่วย'
+      },
 
       // --- series ---
-      { key: 'n_2', label: 'n-2', type: 'number' },
-      { key: 'n_1', label: 'n-1', type: 'number' },
-      { key: 'n', label: 'n', type: 'number' },
       { key: 'n1', label: 'n+1', type: 'number' },
       { key: 'n2', label: 'n+2', type: 'number' },
-      { key: 'n3', label: 'n+3', type: 'number' },
-      { key: 'price', label: 'Price', type: 'number' },
-
-      // --- sales meta ---
-      { key: 'division', label: 'Division' },
-      { key: 'sales_organization', label: 'Sales Organization' },
-      { key: 'sales_office', label: 'Sales Office' },
-      { key: 'sales_group', label: 'Sales Group' },
-      { key: 'sales_representative', label: 'Sales Representative' },
-
-      // --- Distribution Channel (แก้ให้เป็น combo) ---
-      {
-        key: 'distributionChannels',
-        label: 'Distribution Channel',
-        type: 'combo',
-        options: dcOptions,
-        onSearch: searchDistributionChannels,
-        historyKey: 'manual:distributionChannel',
-        placeholder: 'เลือก/ค้นหา Distribution Channel',
-        onSelectOption: handleDistributionChannelSelect
-      }
+      { key: 'n3', label: 'n+3', type: 'number' }
     ],
     [
       companyOptions,
       deptOptions,
-      dcOptions,
       materialOptions,
+      packSizeOptions,
+      uomOptions,
       searchCompanies,
       searchDepts,
-      searchDistributionChannels,
       searchMaterials,
+      searchPackSizes,
+      searchUoms,
       handleMaterialOptionSelect,
       handleCompanyOptionSelect,
-      handleCompanyCodeOptionSelect,
-      handleDistributionChannelSelect
+      handleCompanyCodeOptionSelect
     ]
   );
 
@@ -914,22 +1265,20 @@ export function ManualEntryForm() {
                               type="number"
                               min="0"
                               value={
-                                c.key === 'n_2' ? (r.n_2 ?? '') :
-                                c.key === 'n_1' ? (r.n_1 ?? '') :
-                                c.key === 'n' ? (r.n ?? '') :
-                                c.key === 'n1' ? (r.n1 ?? '') :
-                                c.key === 'n2' ? (r.n2 ?? '') :
-                                c.key === 'n3' ? (r.n3 ?? '') :
-                                c.key === 'price' ? (r.price ?? '') : ''
+                                c.key === 'n1'
+                                  ? (r.n1 ?? '')
+                                  : c.key === 'n2'
+                                    ? (r.n2 ?? '')
+                                    : c.key === 'n3'
+                                      ? (r.n3 ?? '')
+                                      : ''
                               }
                               onChange={e =>
-                                c.key === 'n_2' ? updateNum(i, 'n_2', e.target.value) :
-                                c.key === 'n_1' ? updateNum(i, 'n_1', e.target.value) :
-                                c.key === 'n' ? updateNum(i, 'n', e.target.value) :
-                                c.key === 'n1' ? updateNum(i, 'n1', e.target.value) :
-                                c.key === 'n2' ? updateNum(i, 'n2', e.target.value) :
-                                c.key === 'n3' ? updateNum(i, 'n3', e.target.value) :
-                                updateNum(i, 'price', e.target.value)
+                                c.key === 'n1'
+                                  ? updateNum(i, 'n1', e.target.value)
+                                  : c.key === 'n2'
+                                    ? updateNum(i, 'n2', e.target.value)
+                                    : updateNum(i, 'n3', e.target.value)
                               }
                             />
                           ) : isComboColumn(c) ? (

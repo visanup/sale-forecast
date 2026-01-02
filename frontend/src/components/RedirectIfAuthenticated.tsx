@@ -7,7 +7,7 @@ type RedirectIfAuthenticatedProps = {
 };
 
 export function RedirectIfAuthenticated({ children }: RedirectIfAuthenticatedProps) {
-  const { isAuthenticated, loading } = useAuth();
+  const { isAuthenticated, loading, user } = useAuth();
   const location = useLocation();
   const state = location.state as { from?: Location } | undefined;
 
@@ -16,6 +16,9 @@ export function RedirectIfAuthenticated({ children }: RedirectIfAuthenticatedPro
   }
 
   if (isAuthenticated) {
+    if (user?.mustChangePassword) {
+      return <Navigate to="/force-password-change" replace />;
+    }
     const destination = state?.from?.pathname ?? '/';
     return <Navigate to={destination} replace />;
   }

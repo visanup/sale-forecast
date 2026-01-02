@@ -5,12 +5,12 @@ import { EditableGrid } from '../components/EditableGrid';
 import { ManualEntryForm } from '../components/ManualEntryForm';
 import { HistoryTable } from '../components/HistoryTable';
 import { MasterDataShowcase } from '../components/MasterDataShowcase';
-import { 
-  Upload, 
-  Edit3, 
-  BarChart3, 
-  TrendingUp, 
-  FileSpreadsheet, 
+import {
+  Upload,
+  Edit3,
+  BarChart3,
+  TrendingUp,
+  FileSpreadsheet,
   Database,
   Zap,
   Shield,
@@ -23,22 +23,42 @@ import {
   Loader2,
   AlertTriangle,
   CheckCircle2,
-  X
+  X,
+  Undo2
 } from 'lucide-react';
 import {
   ingestApi,
   dataApi,
+  dimApi,
+  monthlyAccessMaterialApi,
   type SalesForecastRecord,
   type SalesForecastMetadata,
   type SalesForecastMonthsEntry
 } from '../services/api';
+import { DimSource, type DimCompany, type DimDept, type DimMaterial } from '../services/dimSource';
 import { useErrorLog } from '../hooks/useErrorLog';
 import { useAuth } from '../hooks/useAuth';
 import type { AuthenticatedUser } from '../contexts/AuthContext';
+import {
+  buildUpdatedConfirmationMetadata,
+  getHistoryConfirmationSnapshot
+} from '../utils/historyConfirmation';
+import { confirmCrossMonth, getCurrentAnchorMonth } from '../utils/anchorMonth';
+import { formatLineErrorMessage } from '../utils/errorLine';
 
 type ColumnType = 'string' | 'number';
 type RowObject = Record<string, string | number | null>;
+type WorkbookSheet = { name: string; sheet: XLSX.WorkSheet };
 type ValidationIssue = { row: number; column: string; expected: ColumnType; actual: string };
+type MasterValidationResult = {
+  errorMessages: string[];
+  warningMessages: string[];
+  errorIssues: Array<{ row: number; field: string; value: string }>;
+  warningIssues: Array<{ row: number; field: string; value: string }>;
+  skuLookupFailures: Array<{ materialCode: string; message: string }>;
+  monthlyAccessLookupFailure?: string;
+};
+type ConfirmAction = 'confirm' | 'unconfirm';
 
 const EXPECTED_COLUMN_TYPES: Record<string, ColumnType> = {
   'หน่วยงาน': 'string',
@@ -71,6 +91,307 @@ const COLUMN_HEADER_RENAMES: Record<string, string> = {
 };
 
 const MAX_VALIDATION_ERRORS = 10;
+const MASTER_LOOKUP_LIMIT = 100;
+
+const MASTER_DEPT_KEYS = ['หน่วยงาน', 'dept_code', 'DEPT_CODE'];
+const MASTER_COMPANY_CODE_KEYS = [
+  'customer_code',
+  'company_code',
+  'CUSTOMER_CODE',
+  'SAP Code',
+  'SAP_CODE'
+];
+const MASTER_COMPANY_DESC_KEYS = [
+  'ชื่อบริษัท',
+  'company_desc',
+  'companyDesc',
+  'company_name',
+  'companyName'
+];
+const MASTER_MATERIAL_CODE_KEYS = [
+  'material_code',
+  'materialCode',
+  'MATERIAL_CODE',
+  'SAPCode',
+  'SAP_CODE'
+];
+const MASTER_MATERIAL_DESC_KEYS = ['ชื่อสินค้า', 'material_desc', 'materialDesc', 'MATERIAL_DESC'];
+const MASTER_PACK_SIZE_KEYS = ['Pack Size', 'pack_size', 'packSize', 'PACK_SIZE'];
+const MASTER_UOM_KEYS = ['หน่วย', 'uom_code', 'uomCode', 'UOM', 'UOM_CODE'];
+const MONTHLY_ACCESS_CODE_FIELD = 'monthly_access_control_material';
+const MONTHLY_ACCESS_DESC_FIELD = 'monthly_access_control_material_desc';
+
+const monthlyAccessMaterialCache = new Map<string, Promise<Map<string, string | null>>>();
+
+function normalizeLookupValue(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed.length ? trimmed : null;
+  }
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return String(value);
+  }
+  const fallback = String(value).trim();
+  return fallback.length ? fallback : null;
+}
+
+function normalizeMatchKey(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function pickRowValue(row: RowObject, keys: string[]): string | null {
+  for (const key of keys) {
+    if (!Object.prototype.hasOwnProperty.call(row, key)) continue;
+    const value = normalizeLookupValue(row[key]);
+    if (value) return value;
+  }
+  return null;
+}
+
+async function loadDimMap<T>(
+  codes: Set<string>,
+  fetcher: (params: { search?: string; limit?: number }) => Promise<T[]>,
+  extractCode: (item: T) => string | null
+) {
+  const map = new Map<string, T>();
+  await Promise.all(
+    Array.from(codes.values()).map(async (code) => {
+      const items = await fetcher({ search: code, limit: MASTER_LOOKUP_LIMIT });
+      const normalizedCode = normalizeMatchKey(code);
+      const match = items.find((item) => normalizeMatchKey(extractCode(item) ?? '') === normalizedCode);
+      if (match) {
+        map.set(normalizedCode, match);
+      }
+    })
+  );
+  return map;
+}
+
+async function loadSkuMap(materialCodes: Set<string>) {
+  const map = new Map<string, Set<string> | null>();
+  const failures: Array<{ materialCode: string; message: string }> = [];
+  await Promise.all(
+    Array.from(materialCodes.values()).map(async (code) => {
+      const normalizedCode = normalizeMatchKey(code);
+      try {
+        const response = await dimApi.skus({ search: code, limit: MASTER_LOOKUP_LIMIT });
+        const combos = new Set<string>();
+        (response?.data ?? []).forEach((item: any) => {
+          const itemCode = item?.materialCode ?? item?.material_code ?? '';
+          if (normalizeMatchKey(String(itemCode)) !== normalizedCode) return;
+          const packSize = normalizeLookupValue(item?.packSize ?? item?.pack_size);
+          const uomCode = normalizeLookupValue(item?.uomCode ?? item?.uom_code);
+          if (!packSize || !uomCode) return;
+          combos.add(`${normalizeMatchKey(packSize)}|${normalizeMatchKey(uomCode)}`);
+        });
+        map.set(normalizedCode, combos);
+      } catch (error: any) {
+        map.set(normalizedCode, null);
+        failures.push({
+          materialCode: code,
+          message: error?.message || 'failed to load sku master data'
+        });
+      }
+    })
+  );
+  return { map, failures };
+}
+
+async function loadMonthlyAccessMaterialMap(anchorMonth: string): Promise<Map<string, string | null>> {
+  const normalizedMonth = anchorMonth.trim();
+  const cached = monthlyAccessMaterialCache.get(normalizedMonth);
+  if (cached) return cached;
+  const request = (async () => {
+    const map = new Map<string, string | null>();
+    let cursor: string | undefined;
+    do {
+      const response = await monthlyAccessMaterialApi.list({
+        anchor_month: normalizedMonth,
+        limit: MASTER_LOOKUP_LIMIT,
+        cursor
+      });
+      (response?.data ?? []).forEach((item) => {
+        const code = normalizeLookupValue(item.material_code);
+        if (!code) return;
+        const desc = normalizeLookupValue(item.material_desc);
+        map.set(normalizeMatchKey(code), desc);
+      });
+      cursor = response?.paging?.next ?? undefined;
+    } while (cursor);
+    return map;
+  })();
+  monthlyAccessMaterialCache.set(normalizedMonth, request);
+  try {
+    return await request;
+  } catch (error) {
+    monthlyAccessMaterialCache.delete(normalizedMonth);
+    throw error;
+  }
+}
+
+async function validateRowsAgainstMaster(
+  rows: RowObject[],
+  anchorMonth?: string
+): Promise<MasterValidationResult> {
+  const errorIssues: MasterValidationResult['errorIssues'] = [];
+  const warningIssues: MasterValidationResult['warningIssues'] = [];
+
+  const rowInfo = rows.map((row, index) => {
+    const deptCode = pickRowValue(row, MASTER_DEPT_KEYS);
+    const companyCode = pickRowValue(row, MASTER_COMPANY_CODE_KEYS);
+    const companyDesc = pickRowValue(row, MASTER_COMPANY_DESC_KEYS);
+    const materialCode = pickRowValue(row, MASTER_MATERIAL_CODE_KEYS);
+    const materialDesc = pickRowValue(row, MASTER_MATERIAL_DESC_KEYS);
+    const packSize = pickRowValue(row, MASTER_PACK_SIZE_KEYS);
+    const uomCode = pickRowValue(row, MASTER_UOM_KEYS);
+    return {
+      rowNumber: index + 2,
+      deptCode,
+      companyCode,
+      companyDesc,
+      materialCode,
+      materialDesc,
+      packSize,
+      uomCode
+    };
+  });
+
+  const deptCodes = new Set(rowInfo.map((item) => item.deptCode).filter(Boolean) as string[]);
+  const companyCodes = new Set(rowInfo.map((item) => item.companyCode).filter(Boolean) as string[]);
+  const materialCodes = new Set(rowInfo.map((item) => item.materialCode).filter(Boolean) as string[]);
+
+  const [deptMap, companyMap, materialMap, skuLookup] = await Promise.all([
+    loadDimMap<DimDept>(deptCodes, DimSource.fetchDepts, (item) => item.code ?? null),
+    loadDimMap<DimCompany>(companyCodes, DimSource.fetchCompanies, (item) => item.code ?? null),
+    loadDimMap<DimMaterial>(materialCodes, DimSource.fetchMaterials, (item) => item.code ?? null),
+    loadSkuMap(materialCodes)
+  ]);
+  let monthlyAccessMap: Map<string, string | null> | null = null;
+  let monthlyAccessLookupFailure: string | undefined;
+  if (anchorMonth && anchorMonth.trim().length > 0) {
+    try {
+      monthlyAccessMap = await loadMonthlyAccessMaterialMap(anchorMonth);
+    } catch (error: any) {
+      monthlyAccessLookupFailure =
+        error?.message || 'failed to load monthly_access_control_material data';
+    }
+  }
+
+  rowInfo.forEach((row) => {
+    if (!row.deptCode || !deptMap.has(normalizeMatchKey(row.deptCode))) {
+      errorIssues.push({
+        row: row.rowNumber,
+        field: 'หน่วยงาน',
+        value: row.deptCode ?? ''
+      });
+    }
+
+    if (!row.companyCode || !companyMap.has(normalizeMatchKey(row.companyCode))) {
+      errorIssues.push({
+        row: row.rowNumber,
+        field: 'CUSTOMER_CODE',
+        value: row.companyCode ?? ''
+      });
+    } else {
+      const company = companyMap.get(normalizeMatchKey(row.companyCode));
+      const masterDesc = normalizeLookupValue(company?.description ?? company?.label);
+      const companyDesc = row.companyDesc ?? '';
+      if (!companyDesc || !masterDesc || normalizeMatchKey(companyDesc) !== normalizeMatchKey(masterDesc)) {
+        errorIssues.push({
+          row: row.rowNumber,
+          field: 'ชื่อบริษัท',
+          value: companyDesc
+        });
+      }
+    }
+
+    if (!row.materialCode || !materialMap.has(normalizeMatchKey(row.materialCode))) {
+      warningIssues.push({
+        row: row.rowNumber,
+        field: 'MATERIAL_CODE',
+        value: row.materialCode ?? ''
+      });
+    } else {
+      const material = materialMap.get(normalizeMatchKey(row.materialCode));
+      const masterDesc = normalizeLookupValue(material?.description ?? material?.label);
+      const materialDesc = row.materialDesc ?? '';
+      if (!materialDesc || !masterDesc || normalizeMatchKey(materialDesc) !== normalizeMatchKey(masterDesc)) {
+        warningIssues.push({
+          row: row.rowNumber,
+          field: 'ชื่อสินค้า',
+          value: materialDesc
+        });
+      }
+
+      const packSize = row.packSize ?? '';
+      const uomCode = row.uomCode ?? '';
+      if (!packSize || !uomCode) {
+        warningIssues.push({
+          row: row.rowNumber,
+          field: 'PACK SIZE/หน่วย',
+          value: `${packSize || '-'} / ${uomCode || '-'}`
+        });
+      } else {
+        const combos = skuLookup.map.get(normalizeMatchKey(row.materialCode));
+        if (combos) {
+          const comboKey = `${normalizeMatchKey(packSize)}|${normalizeMatchKey(uomCode)}`;
+          if (!combos.has(comboKey)) {
+            warningIssues.push({
+              row: row.rowNumber,
+              field: 'PACK SIZE/หน่วย',
+              value: `${packSize} / ${uomCode}`
+            });
+          }
+        }
+      }
+    }
+
+    if (monthlyAccessMap && row.materialCode) {
+      const normalizedCode = normalizeMatchKey(row.materialCode);
+      const hasAccess = monthlyAccessMap.has(normalizedCode);
+      const accessDesc = monthlyAccessMap.get(normalizedCode);
+      if (!hasAccess) {
+        warningIssues.push({
+          row: row.rowNumber,
+          field: MONTHLY_ACCESS_CODE_FIELD,
+          value: row.materialCode
+        });
+      } else if (accessDesc) {
+        const materialDesc = row.materialDesc ?? '';
+        if (!materialDesc || normalizeMatchKey(materialDesc) !== normalizeMatchKey(accessDesc)) {
+          warningIssues.push({
+            row: row.rowNumber,
+            field: MONTHLY_ACCESS_DESC_FIELD,
+            value: materialDesc
+          });
+        }
+      }
+    }
+  });
+
+  const errorMessages = errorIssues.map(
+    (issue) => `แถวที่ ${issue.row}: ${issue.field} "${issue.value}" ไม่ตรงกับ Master`
+  );
+  const warningMessages = warningIssues.map((issue) => {
+    if (issue.field === MONTHLY_ACCESS_CODE_FIELD) {
+      return `แถวที่ ${issue.row}: material_code "${issue.value}" ไม่พบใน monthly_access_control_material`;
+    }
+    if (issue.field === MONTHLY_ACCESS_DESC_FIELD) {
+      return `แถวที่ ${issue.row}: material_desc "${issue.value}" ไม่ตรงกับ monthly_access_control_material`;
+    }
+    return `แถวที่ ${issue.row}: ${issue.field} "${issue.value}" ไม่ตรงกับ Master`;
+  });
+
+  return {
+    errorMessages,
+    warningMessages,
+    errorIssues,
+    warningIssues,
+    skuLookupFailures: skuLookup.failures,
+    monthlyAccessLookupFailure
+  };
+}
 
 function describeValueType(value: unknown): string {
   if (value === null) return 'null';
@@ -131,6 +452,62 @@ function normalizeRows(rows: RowObject[]): RowObject[] {
   });
 }
 
+function buildMatrixFromRows(
+  headers: string[],
+  rows: RowObject[]
+): Array<Array<string | number | null>> {
+  const effectiveHeaders =
+    headers.length > 0
+      ? headers
+      : rows.length > 0
+        ? Object.keys(rows[0] || {})
+        : [];
+  if (effectiveHeaders.length === 0) {
+    return [];
+  }
+
+  const matrix: Array<Array<string | number | null>> = [effectiveHeaders];
+  rows.forEach((row) => {
+    const rowValues = effectiveHeaders.map((header) => {
+      const value = row[header];
+      if (value === null || value === undefined || value === '') {
+        return '';
+      }
+      return value;
+    });
+    matrix.push(rowValues);
+  });
+  return matrix;
+}
+
+function buildUploadFileFromMatrix(params: {
+  baseFile: File;
+  matrix: Array<Array<string | number | null>>;
+  primarySheetName: string;
+  extraSheets: WorkbookSheet[];
+}): File {
+  if (params.matrix.length === 0) {
+    return params.baseFile;
+  }
+
+  const workbook = XLSX.utils.book_new();
+  const sheetName = params.primarySheetName || 'Sheet1';
+  const sheet = XLSX.utils.aoa_to_sheet(params.matrix);
+  XLSX.utils.book_append_sheet(workbook, sheet, sheetName);
+  params.extraSheets.forEach(({ name, sheet }) => {
+    if (name && sheet) {
+      XLSX.utils.book_append_sheet(workbook, sheet, name);
+    }
+  });
+
+  const buffer = XLSX.write(workbook, { type: 'array', bookType: 'xlsx' });
+  const fileType =
+    params.baseFile.type && params.baseFile.type.trim() !== ''
+      ? params.baseFile.type
+      : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+  return new File([buffer], params.baseFile.name, { type: fileType });
+}
+
 function renameRowKeys(row: RowObject): RowObject {
   const next: RowObject = {};
   for (const [key, value] of Object.entries(row)) {
@@ -152,9 +529,6 @@ function formatValidationIssue(issue: ValidationIssue): string {
 }
 
 const HISTORY_MONTH_FIELDS = [
-  { key: 'n_2', label: 'n-2', delta: -2 },
-  { key: 'n_1', label: 'n-1', delta: -1 },
-  { key: 'n', label: 'n', delta: 0 },
   { key: 'n1', label: 'n+1', delta: 1 },
   { key: 'n2', label: 'n+2', delta: 2 },
   { key: 'n3', label: 'n+3', delta: 3 }
@@ -163,33 +537,22 @@ const HISTORY_MONTH_FIELDS = [
 const HISTORY_EXPORT_COLUMNS = [
   { key: 'record_id', label: 'record_id' },
   { key: 'anchor_month', label: 'anchor_month' },
-  { key: 'company_code', label: 'company_code' },
-  { key: 'company_desc', label: 'company_desc' },
   { key: 'dept_code', label: 'dept_code' },
-  { key: 'dc_code', label: 'distribution_channel' },
-  { key: 'division', label: 'division' },
-  { key: 'sales_organization', label: 'sales_organization' },
-  { key: 'sales_office', label: 'sales_office' },
-  { key: 'sales_group', label: 'sales_group' },
-  { key: 'sales_representative', label: 'sales_representative' },
+  { key: 'company_desc', label: 'company_desc' },
+  { key: 'company_code', label: 'company_code' },
   { key: 'material_code', label: 'material_code' },
   { key: 'material_desc', label: 'material_desc' },
   { key: 'pack_size', label: 'pack_size' },
   { key: 'uom_code', label: 'uom_code' },
-  { key: 'forecast_qty', label: 'forecast_qty' },
-  { key: 'price', label: 'price' },
-  { key: 'n_2', label: 'n-2' },
-  { key: 'n_1', label: 'n-1' },
-  { key: 'n', label: 'n' },
   { key: 'n1', label: 'n+1' },
   { key: 'n2', label: 'n+2' },
   { key: 'n3', label: 'n+3' },
   { key: 'last_action', label: 'last_action' },
-  { key: 'last_performed_at', label: 'last_performed_at' },
-  { key: 'performed_by', label: 'performed_by' },
-  { key: 'user_id', label: 'user_id' },
-  { key: 'user_username', label: 'user_username' },
   { key: 'user_email', label: 'user_email' },
+  { key: 'last_performed_at', label: 'last_performed_at' },
+  { key: 'confirm_status', label: 'confirm_status' },
+  { key: 'confirmed_by', label: 'confirmed_by' },
+  { key: 'confirmed_at', label: 'confirmed_at' },
   { key: 'metadata_source', label: 'metadata_source' }
 ] as const;
 
@@ -201,20 +564,11 @@ type HistoryFormState = {
   companyCode: string;
   companyDesc: string;
   deptCode: string;
-  dcCode: string;
-  division: string;
-  salesOrganization: string;
-  salesOffice: string;
-  salesGroup: string;
-  salesRepresentative: string;
   materialCode: string;
   materialDesc: string;
   packSize: string;
   uomCode: string;
   price: string;
-  n_2: string;
-  n_1: string;
-  n: string;
   n1: string;
   n2: string;
   n3: string;
@@ -310,6 +664,17 @@ function recordBelongsToUser(record: SalesForecastRecord, user: AuthenticatedUse
   return USER_ACTION_WHITELIST.has(action);
 }
 
+function resolveConfirmationActor(user: AuthenticatedUser | null | undefined): string | null {
+  if (!user) return null;
+  const candidates = [user.username, user.email, user.id];
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string' && candidate.trim().length > 0) {
+      return candidate.trim();
+    }
+  }
+  return null;
+}
+
 function extractPriceString(metadata: SalesForecastMetadata | null | undefined): string {
   if (!metadata) return '';
   const months = Array.isArray(metadata.months) ? metadata.months : [];
@@ -344,11 +709,9 @@ function toIsoTimestamp(value: unknown): string {
 function mapHistoryRecordToExportRow(record: SalesForecastRecord): HistoryExportRow {
   const metadata = record.metadata ?? {};
   const metadataRecord = metadata as Record<string, unknown>;
+  const confirmation = getHistoryConfirmationSnapshot(record);
 
   const monthsMap: Record<typeof HISTORY_MONTH_FIELDS[number]['key'], string> = {
-    n_2: '',
-    n_1: '',
-    n: '',
     n1: '',
     n2: '',
     n3: ''
@@ -372,40 +735,24 @@ function mapHistoryRecordToExportRow(record: SalesForecastRecord): HistoryExport
     }
   }
 
-  const price = extractPriceString(metadata);
-
   return {
     record_id: toExportString(record.id),
     anchor_month: toExportString(record.anchor_month),
-    company_code: toExportString(record.company_code),
-    company_desc: toExportString(record.company_desc),
     dept_code: toExportString(metadataRecord.dept_code),
-    dc_code: toExportString(metadataRecord.dc_code),
-    division: toExportString(metadataRecord.division),
-    sales_organization: toExportString(metadataRecord.sales_organization),
-    sales_office: toExportString(metadataRecord.sales_office),
-    sales_group: toExportString(metadataRecord.sales_group),
-    sales_representative: toExportString(metadataRecord.sales_representative),
+    company_desc: toExportString(record.company_desc),
+    company_code: toExportString(record.company_code),
     material_code: toExportString(record.material_code),
     material_desc: toExportString(record.material_desc),
     pack_size: toExportString(metadataRecord.pack_size),
     uom_code: toExportString(metadataRecord.uom_code),
-    forecast_qty:
-      typeof record.forecast_qty === 'number' && Number.isFinite(record.forecast_qty)
-        ? String(record.forecast_qty)
-        : '',
-    price,
-    n_2: monthsMap.n_2,
-    n_1: monthsMap.n_1,
-    n: monthsMap.n,
     n1: monthsMap.n1,
     n2: monthsMap.n2,
     n3: monthsMap.n3,
+    confirm_status: confirmation.confirmed ? 'CONFIRMED' : 'PENDING',
+    confirmed_by: toExportString(confirmation.confirmedBy),
+    confirmed_at: toIsoTimestamp(confirmation.confirmedAt),
     last_action: toExportString(record.last_action),
     last_performed_at: toIsoTimestamp(record.last_performed_at),
-    performed_by: toExportString(record.last_actor?.performed_by),
-    user_id: toExportString(record.last_actor?.user_id),
-    user_username: toExportString(record.last_actor?.user_username),
     user_email: toExportString(record.last_actor?.user_email),
     metadata_source: toExportString(metadataRecord.source)
   };
@@ -444,9 +791,6 @@ function triggerCsvDownload(filename: string, content: string): void {
 function buildHistoryFormFromRecord(record: SalesForecastRecord): HistoryFormState {
   const metadata = record.metadata ?? {};
   const monthValues: Record<typeof HISTORY_MONTH_FIELDS[number]['key'], string> = {
-    n_2: '',
-    n_1: '',
-    n: '',
     n1: '',
     n2: '',
     n3: ''
@@ -469,20 +813,11 @@ function buildHistoryFormFromRecord(record: SalesForecastRecord): HistoryFormSta
     companyCode: record.company_code ?? '',
     companyDesc: record.company_desc ?? '',
     deptCode: toInputString(metadata.dept_code),
-    dcCode: toInputString(metadata.dc_code),
-    division: toInputString(metadata.division),
-    salesOrganization: toInputString(metadata.sales_organization),
-    salesOffice: toInputString(metadata.sales_office),
-    salesGroup: toInputString(metadata.sales_group),
-    salesRepresentative: toInputString(metadata.sales_representative),
     materialCode: record.material_code ?? '',
     materialDesc: record.material_desc ?? '',
     packSize: toInputString(metadata.pack_size),
     uomCode: toInputString(metadata.uom_code),
     price: extractPriceString(metadata),
-    n_2: monthValues.n_2,
-    n_1: monthValues.n_1,
-    n: monthValues.n,
     n1: monthValues.n1,
     n2: monthValues.n2,
     n3: monthValues.n3
@@ -540,18 +875,15 @@ function buildMetadataFromForm(record: SalesForecastRecord, form: HistoryFormSta
     return acc;
   }, []);
 
-  const forecastQty = parseNumericInput(form.n);
+  const forecastQty =
+    typeof record.forecast_qty === 'number' && Number.isFinite(record.forecast_qty)
+      ? record.forecast_qty
+      : null;
 
   const metadata: SalesForecastMetadata = {
     ...base,
     months,
     dept_code: form.deptCode || null,
-    dc_code: form.dcCode || null,
-    division: form.division || null,
-    sales_organization: form.salesOrganization || null,
-    sales_office: form.salesOffice || null,
-    sales_group: form.salesGroup || null,
-    sales_representative: form.salesRepresentative || null,
     pack_size: form.packSize || null,
     uom_code: form.uomCode || null,
     fact_rows_inserted: base.fact_rows_inserted
@@ -570,18 +902,24 @@ export function HomePage() {
   const { logError } = useErrorLog();
   const { user } = useAuth();
   const isAdminUser = userHasAdminRole(user);
+  const defaultAnchorMonth = getCurrentAnchorMonth();
   const [tab, setTab] = useState<'upload' | 'manual' | 'history' | 'master'>('upload');
   const [rows, setRows] = useState<RowObject[]>([]);
   const [headers, setHeaders] = useState<string[]>([]);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [anchorMonth, setAnchorMonth] = useState<string>(new Date().toISOString().slice(0,7));
+  const [workbookPrimarySheetName, setWorkbookPrimarySheetName] = useState('Sheet1');
+  const [workbookExtraSheets, setWorkbookExtraSheets] = useState<WorkbookSheet[]>([]);
+  const [anchorMonth, setAnchorMonth] = useState<string>(defaultAnchorMonth);
   const [isUploading, setIsUploading] = useState(false);
   const [hasUploadedCurrentFile, setHasUploadedCurrentFile] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [messageKind, setMessageKind] = useState<'success' | 'error' | 'info'>('info');
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
   const [validationOverflowCount, setValidationOverflowCount] = useState(0);
-  const [historyAnchorMonth, setHistoryAnchorMonth] = useState<string>(new Date().toISOString().slice(0,7));
+  const [validationWarnings, setValidationWarnings] = useState<string[]>([]);
+  const [validationWarningOverflowCount, setValidationWarningOverflowCount] = useState(0);
+  const [warningAcknowledged, setWarningAcknowledged] = useState(false);
+  const [historyAnchorMonth, setHistoryAnchorMonth] = useState<string>(defaultAnchorMonth);
   const [historySearch, setHistorySearch] = useState('');
   const [historyRecords, setHistoryRecords] = useState<SalesForecastRecord[]>([]);
   const [historyError, setHistoryError] = useState<string | null>(null);
@@ -594,19 +932,41 @@ export function HomePage() {
   const [historyDeletingId, setHistoryDeletingId] = useState<string | null>(null);
   const [historyExporting, setHistoryExporting] = useState(false);
   const [historyBulkDeleting, setHistoryBulkDeleting] = useState(false);
+  const [historyConfirmingId, setHistoryConfirmingId] = useState<string | null>(null);
+  const [historyBulkConfirmingAction, setHistoryBulkConfirmingAction] = useState<ConfirmAction | null>(null);
 
   const deletableRecords = useMemo(() => {
     if (!user) return [] as SalesForecastRecord[];
     return historyRecords.filter((r) => recordBelongsToUser(r, user));
   }, [historyRecords, user]);
 
+  const confirmationStats = useMemo(
+    () =>
+      historyRecords.reduce(
+        (acc, record) => {
+          const snapshot = getHistoryConfirmationSnapshot(record);
+          if (snapshot.confirmed) {
+            acc.confirmed += 1;
+          } else {
+            acc.pending += 1;
+          }
+          return acc;
+        },
+        { confirmed: 0, pending: 0 }
+      ),
+    [historyRecords]
+  );
+
   function handleFile(file: File) {
     setMessage(null);
     setValidationErrors([]);
     setValidationOverflowCount(0);
+    setValidationWarnings([]);
+    setValidationWarningOverflowCount(0);
+    setWarningAcknowledged(false);
     setHasUploadedCurrentFile(false);
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
       const data = new Uint8Array(e.target?.result as ArrayBuffer);
       const wb = XLSX.read(data, { type: 'array' });
       const ws = wb.Sheets[wb.SheetNames[0]];
@@ -631,6 +991,11 @@ export function HomePage() {
       setHeaders(effectiveHeaders);
       const sanitizedMatrix =
         sheetRows.length > 0 ? [effectiveHeaders, ...sheetRows.slice(1)] : [];
+      const primarySheetName = wb.SheetNames[0] || 'Sheet1';
+      const extraSheets: WorkbookSheet[] = wb.SheetNames.slice(1).map((sheetName) => ({
+        name: sheetName,
+        sheet: wb.Sheets[sheetName]
+      }));
 
       const issues = collectValidationIssues(normalizedRows);
       if (issues.length > 0) {
@@ -638,8 +1003,12 @@ export function HomePage() {
         const formatted = issues.slice(0, MAX_VALIDATION_ERRORS).map(formatValidationIssue);
         setValidationErrors(formatted);
         setValidationOverflowCount(Math.max(issues.length - formatted.length, 0));
+        setValidationWarnings([]);
+        setValidationWarningOverflowCount(0);
         setRows([]);
         setSelectedFile(null);
+        setWorkbookPrimarySheetName('Sheet1');
+        setWorkbookExtraSheets([]);
         setMessageKind('error');
         setMessage(`พบปัญหาในการตรวจสอบข้อมูลทั้งหมด ${issues.length} จุด กรุณาแก้ไขไฟล์ก่อนอัปโหลดอีกครั้ง`);
         logError({
@@ -656,12 +1025,10 @@ export function HomePage() {
         try {
           const normalizedWb = XLSX.utils.book_new();
           const normalizedSheet = XLSX.utils.aoa_to_sheet(sanitizedMatrix);
-          const primarySheetName = wb.SheetNames[0] || 'Sheet1';
           XLSX.utils.book_append_sheet(normalizedWb, normalizedSheet, primarySheetName);
-          for (let i = 1; i < wb.SheetNames.length; i += 1) {
-            const sheetName = wb.SheetNames[i];
-            XLSX.utils.book_append_sheet(normalizedWb, wb.Sheets[sheetName], sheetName);
-          }
+          extraSheets.forEach(({ name, sheet }) => {
+            XLSX.utils.book_append_sheet(normalizedWb, sheet, name);
+          });
           const normalizedBuffer = XLSX.write(normalizedWb, { type: 'array', bookType: 'xlsx' });
           const fileType =
             file.type && file.type.trim() !== ''
@@ -676,10 +1043,14 @@ export function HomePage() {
 
       setRows(normalizedRows);
       setSelectedFile(normalizedFile);
+      setWorkbookPrimarySheetName(primarySheetName);
+      setWorkbookExtraSheets(extraSheets);
       setValidationErrors([]);
       setValidationOverflowCount(0);
+      setValidationWarnings([]);
+      setValidationWarningOverflowCount(0);
       setMessageKind('success');
-      setMessage('ตรวจสอบไฟล์เรียบร้อย สามารถอัปโหลดได้');
+      setMessage('ตรวจสอบรูปแบบไฟล์เรียบร้อย กด Submit เพื่ออัปโหลด');
     };
     reader.readAsArrayBuffer(file);
   }
@@ -701,12 +1072,112 @@ export function HomePage() {
       setMessage('กรุณาแก้ไขข้อมูลให้ถูกต้องก่อนอัปโหลด');
       return;
     }
+    const normalizedRowsForUpload = normalizeRows(rows);
+    const targetAnchorMonth = anchorMonth || getCurrentAnchorMonth();
+    let masterValidation: MasterValidationResult;
+    try {
+      masterValidation = await validateRowsAgainstMaster(normalizedRowsForUpload, targetAnchorMonth);
+    } catch (error: any) {
+      const fallbackMessage = 'ไม่สามารถตรวจสอบข้อมูลกับ Master ได้ กรุณาลองใหม่อีกครั้ง';
+      logError({
+        message: 'ไม่สามารถตรวจสอบข้อมูล Master',
+        source: 'HomePage:handleUpload:masterValidation',
+        details: typeof error?.stack === 'string' ? error.stack : undefined,
+        context: { fileName: selectedFile.name }
+      });
+      setMessageKind('error');
+      setMessage(fallbackMessage);
+      return;
+    }
+
+    if (masterValidation.skuLookupFailures.length > 0) {
+      logError({
+        message: 'ไม่สามารถตรวจสอบ Pack Size/หน่วย จาก Master ได้บางรายการ',
+        source: 'HomePage:handleUpload:skuLookup',
+        severity: 'warning',
+        context: masterValidation.skuLookupFailures
+      });
+    }
+    if (masterValidation.monthlyAccessLookupFailure) {
+      logError({
+        message: 'ไม่สามารถตรวจสอบ monthly_access_control_material ได้',
+        source: 'HomePage:handleUpload:monthlyAccessMaterial',
+        severity: 'warning',
+        context: { error: masterValidation.monthlyAccessLookupFailure }
+      });
+    }
+
+    if (masterValidation.errorMessages.length > 0) {
+      const formatted = masterValidation.errorMessages.slice(0, MAX_VALIDATION_ERRORS);
+      setValidationErrors(formatted);
+      setValidationOverflowCount(
+        Math.max(masterValidation.errorMessages.length - formatted.length, 0)
+      );
+      setValidationWarnings([]);
+      setValidationWarningOverflowCount(0);
+      setMessageKind('error');
+      setMessage(
+        `พบข้อมูลไม่ตรงกับ Master ${masterValidation.errorMessages.length} จุด กรุณาแก้ไขก่อนอัปโหลด`
+      );
+      logError({
+        message: 'พบข้อมูลไม่ตรงกับ Master (Error)',
+        source: 'HomePage:handleUpload:masterValidation',
+        context: masterValidation.errorIssues.slice(0, 50)
+      });
+      return;
+    }
+
+    if (masterValidation.warningMessages.length > 0) {
+      const formatted = masterValidation.warningMessages.slice(0, MAX_VALIDATION_ERRORS);
+      setValidationWarnings(formatted);
+      setValidationWarningOverflowCount(
+        Math.max(masterValidation.warningMessages.length - formatted.length, 0)
+      );
+      logError({
+        message: 'พบข้อมูลไม่ตรงกับ Master (Warning)',
+        source: 'HomePage:handleUpload:masterValidation',
+        severity: 'warning',
+        context: masterValidation.warningIssues.slice(0, 50)
+      });
+    } else {
+      setValidationWarnings([]);
+      setValidationWarningOverflowCount(0);
+      setWarningAcknowledged(false);
+    }
+    if (masterValidation.warningMessages.length > 0 && !warningAcknowledged) {
+      const confirmed = window.confirm(
+        `พบข้อมูลไม่ตรงกับ Master (Warning) ${masterValidation.warningMessages.length} จุด ต้องการยืนยันการอัปโหลดหรือไม่?`
+      );
+      if (!confirmed) {
+        setMessageKind('info');
+        setMessage('ยกเลิกการอัปโหลดข้อมูล');
+        return;
+      }
+      setWarningAcknowledged(true);
+    }
+    if (!confirmCrossMonth(targetAnchorMonth, { contextLabel: 'Upload Data' })) {
+      setMessageKind('info');
+      setMessage('ยกเลิกการอัปโหลดข้อมูล');
+      return;
+    }
+    const uploadHeaders =
+      headers.length > 0 ? headers : Object.keys(normalizedRowsForUpload[0] || {});
+    const uploadMatrix = buildMatrixFromRows(uploadHeaders, normalizedRowsForUpload);
+    const fileToUpload =
+      uploadMatrix.length > 0
+        ? buildUploadFileFromMatrix({
+            baseFile: selectedFile,
+            matrix: uploadMatrix,
+            primarySheetName: workbookPrimarySheetName,
+            extraSheets: workbookExtraSheets
+          })
+        : selectedFile;
     const previewRowCount = rows.length;
     setIsUploading(true);
     setMessageKind('info');
     setMessage('กำลังอัปโหลด...');
     try {
-      const result = await ingestApi.upload(selectedFile, anchorMonth || new Date().toISOString().slice(0,7));
+      const result = await ingestApi.upload(fileToUpload, targetAnchorMonth);
       const processedRows =
         typeof result.processedRows === 'number' ? result.processedRows : previewRowCount;
       const insertedRows =
@@ -739,17 +1210,18 @@ export function HomePage() {
       setHasUploadedCurrentFile(true);
     } catch (error: any) {
       const errorMessage = error?.message || 'Upload failed';
+      const friendlyMessage = formatLineErrorMessage(errorMessage, 'Upload failed');
       logError({
-        message: errorMessage,
+        message: friendlyMessage,
         source: 'HomePage:handleUpload',
         details: typeof error?.stack === 'string' ? error.stack : undefined,
         context: {
-          anchorMonth,
+          anchorMonth: targetAnchorMonth,
           fileName: selectedFile.name
         }
       });
       setMessageKind('error');
-      setMessage(errorMessage);
+      setMessage(friendlyMessage);
     } finally {
       setIsUploading(false);
     }
@@ -805,7 +1277,7 @@ export function HomePage() {
   }
 
   function resetHistoryFilters() {
-    const defaultAnchor = new Date().toISOString().slice(0, 7);
+    const defaultAnchor = getCurrentAnchorMonth();
     setHistoryAnchorMonth(defaultAnchor);
     setHistorySearch('');
     setHistoryRecords([]);
@@ -909,6 +1381,141 @@ export function HomePage() {
       });
     } finally {
       setHistoryDeletingId(null);
+    }
+  }
+
+  async function handleHistoryConfirmToggle(record: SalesForecastRecord, action: ConfirmAction) {
+    const targetConfirmed = action === 'confirm';
+    const snapshot = getHistoryConfirmationSnapshot(record);
+    if (snapshot.confirmed === targetConfirmed) return;
+
+    setHistoryConfirmingId(record.id);
+    setHistoryActionNotice(null);
+    try {
+      const actorLabel =
+        resolveConfirmationActor(user) ||
+        snapshot.confirmedBy ||
+        record.last_actor?.user_username ||
+        record.last_actor?.performed_by ||
+        null;
+
+      const metadata = buildUpdatedConfirmationMetadata(record.metadata, {
+        confirmed: targetConfirmed,
+        actor: actorLabel
+      });
+      await dataApi.salesForecastUpdate(record.id, { metadata });
+      await fetchHistory();
+      setHistoryActionNotice({
+        kind: 'success',
+        message: targetConfirmed ? 'Confirm ข้อมูลเรียบร้อยแล้ว' : 'ยกเลิก Confirm แถวนี้เรียบร้อยแล้ว'
+      });
+    } catch (error: any) {
+      const errorMessage =
+        error?.message ||
+        (targetConfirmed ? 'ไม่สามารถ Confirm แถวนี้ได้ กรุณาลองใหม่' : 'ไม่สามารถยกเลิก Confirm แถวนี้ได้');
+      logError({
+        message: errorMessage,
+        source: 'HomePage:handleHistoryConfirmToggle',
+        details: typeof error?.stack === 'string' ? error.stack : undefined,
+        context: { recordId: record.id, action }
+      });
+      setHistoryActionNotice({
+        kind: 'error',
+        message: errorMessage
+      });
+    } finally {
+      setHistoryConfirmingId(null);
+    }
+  }
+
+  async function handleBulkConfirmation(action: ConfirmAction) {
+    if (historyBulkConfirmingAction || historyBulkDeleting || isHistoryLoading) return;
+    const targetConfirmed = action === 'confirm';
+    const targets = historyRecords.filter(
+      (record) => getHistoryConfirmationSnapshot(record).confirmed !== targetConfirmed
+    );
+    if (targets.length === 0) return;
+
+    const confirmMessage = targetConfirmed
+      ? `ยืนยันการ Confirm ${targets.length} รายการตามตัวกรองปัจจุบันหรือไม่?`
+      : `ยืนยันการยกเลิก Confirm ${targets.length} รายการตามตัวกรองปัจจุบันหรือไม่?`;
+    if (!window.confirm(confirmMessage)) return;
+
+    setHistoryBulkConfirmingAction(action);
+    setHistoryActionNotice(null);
+
+    try {
+      const actorLabel = resolveConfirmationActor(user);
+      const BATCH_SIZE = 25;
+      const DELAY_MS = 250;
+      const failures: Array<{ id: string; message: string }> = [];
+      const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+      for (let start = 0; start < targets.length; start += BATCH_SIZE) {
+        const batch = targets.slice(start, start + BATCH_SIZE);
+        await Promise.all(
+          batch.map(async (record) => {
+            try {
+              const metadata = buildUpdatedConfirmationMetadata(record.metadata, {
+                confirmed: targetConfirmed,
+                actor: actorLabel
+              });
+              await dataApi.salesForecastUpdate(record.id, { metadata });
+            } catch (error: any) {
+              failures.push({
+                id: record.id,
+                message: error?.message || 'Failed to update confirmation state'
+              });
+            }
+          })
+        );
+        if (start + BATCH_SIZE < targets.length) {
+          await sleep(DELAY_MS);
+        }
+      }
+
+      await fetchHistory();
+
+      if (failures.length > 0) {
+        const errorMessage = `${failures.length} รายการไม่สามารถ${
+          targetConfirmed ? 'Confirm' : 'ยกเลิก Confirm'
+        }ได้`;
+        logError({
+          message: errorMessage,
+          source: 'HomePage:handleBulkConfirmation',
+          details: JSON.stringify(failures.slice(0, 10)),
+          context: { action, failuresCount: failures.length }
+        });
+        setHistoryActionNotice({
+          kind: 'error',
+          message: errorMessage
+        });
+      } else {
+        setHistoryActionNotice({
+          kind: 'success',
+          message: targetConfirmed
+            ? `Confirm ข้อมูล ${targets.length} รายการเรียบร้อยแล้ว`
+            : `ยกเลิก Confirm ${targets.length} รายการเรียบร้อยแล้ว`
+        });
+      }
+    } catch (error: any) {
+      const errorMessage =
+        error?.message ||
+        (action === 'confirm'
+          ? 'ไม่สามารถ Confirm ข้อมูลตามตัวกรองได้'
+          : 'ไม่สามารถยกเลิก Confirm ข้อมูลตามตัวกรองได้');
+      logError({
+        message: errorMessage,
+        source: 'HomePage:handleBulkConfirmation:unexpected',
+        details: typeof error?.stack === 'string' ? error.stack : undefined,
+        context: { action }
+      });
+      setHistoryActionNotice({
+        kind: 'error',
+        message: errorMessage
+      });
+    } finally {
+      setHistoryBulkConfirmingAction(null);
     }
   }
 
@@ -1235,14 +1842,14 @@ export function HomePage() {
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                      ค้นหาข้อมูล (by หน่วยงาน, ชื่อบริษัท, ลูกค้า, วัตถุดิบ)
+                      ค้นหาข้อมูล (by หน่วยงาน, ชื่อบริษัท, ลูกค้า, วัตถุดิบ, Last_User)
                     </label>
                     <input
                       type="text"
                       value={historySearch}
                       onChange={(e) => setHistorySearch(e.target.value)}
                       className="input"
-                      placeholder="พิมพ์คำค้น เช่น Betagro, MAT-001 หรือ AA001"
+                      placeholder="พิมพ์คำค้น เช่น Betagro, MAT-001, AA001 หรือชื่อ Last_User"
                     />
                   </div>
                 </div>
@@ -1264,6 +1871,54 @@ export function HomePage() {
                       <span>Delete All (My Records)</span>
                     </button>
                   )}
+                  <button
+                    type="button"
+                    onClick={() => handleBulkConfirmation('confirm')}
+                    disabled={
+                      confirmationStats.pending === 0 ||
+                      historyRecords.length === 0 ||
+                      isHistoryLoading ||
+                      historyBulkDeleting ||
+                      historyBulkConfirmingAction === 'confirm'
+                    }
+                    className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 transition hover:border-emerald-400 hover:text-emerald-800 focus:outline-none focus:ring-2 focus:ring-emerald-200 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400 dark:border-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-200 dark:hover:border-emerald-500 dark:hover:text-emerald-100 dark:focus:ring-emerald-500/40 disabled:dark:border-slate-700 disabled:dark:text-slate-500"
+                    title="Confirm records that match the current filters"
+                  >
+                    {historyBulkConfirmingAction === 'confirm' ? (
+                      <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                    ) : (
+                      <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+                    )}
+                    <span>
+                      {historyBulkConfirmingAction === 'confirm'
+                        ? 'Confirming...'
+                        : `Confirm Filtered (${confirmationStats.pending})`}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleBulkConfirmation('unconfirm')}
+                    disabled={
+                      confirmationStats.confirmed === 0 ||
+                      historyRecords.length === 0 ||
+                      isHistoryLoading ||
+                      historyBulkDeleting ||
+                      historyBulkConfirmingAction === 'unconfirm'
+                    }
+                    className="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-700 transition hover:border-amber-400 hover:text-amber-900 focus:outline-none focus:ring-2 focus:ring-amber-200 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400 dark:border-amber-900 dark:bg-amber-900/20 dark:text-amber-200 dark:hover:border-amber-500 dark:hover:text-amber-100 dark:focus:ring-amber-500/40 disabled:dark:border-slate-700 disabled:dark:text-slate-500"
+                    title="ยกเลิก Confirm สำหรับรายการที่กรองอยู่"
+                  >
+                    {historyBulkConfirmingAction === 'unconfirm' ? (
+                      <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                    ) : (
+                      <Undo2 className="h-4 w-4" aria-hidden="true" />
+                    )}
+                    <span>
+                      {historyBulkConfirmingAction === 'unconfirm'
+                        ? 'Cancelling...'
+                        : `Cancel Confirm (${confirmationStats.confirmed})`}
+                    </span>
+                  </button>
                   <button
                     type="button"
                     onClick={exportHistoryCsv}
@@ -1355,8 +2010,11 @@ export function HomePage() {
                     records={historyRecords}
                     onEdit={openHistoryEditor}
                     onDelete={handleHistoryDelete}
+                    onConfirmToggle={handleHistoryConfirmToggle}
                     busyRowId={historyProcessingId}
                     deletingRowId={historyDeletingId}
+                    confirmingRowId={historyConfirmingId}
+                    bulkConfirming={Boolean(historyBulkConfirmingAction)}
                   />
                 </div>
 
@@ -1427,66 +2085,6 @@ export function HomePage() {
                               className="input mt-1"
                               value={historyEditForm.deptCode}
                               onChange={(e) => updateHistoryForm('deptCode', e.target.value)}
-                              disabled={historyProcessingId === historyEditRecord.id}
-                            />
-                          </label>
-                          <label className="text-sm font-medium text-slate-600 dark:text-slate-300">
-                            Distribution Channel
-                            <input
-                              type="text"
-                              className="input mt-1"
-                              value={historyEditForm.dcCode}
-                              onChange={(e) => updateHistoryForm('dcCode', e.target.value)}
-                              disabled={historyProcessingId === historyEditRecord.id}
-                            />
-                          </label>
-                          <label className="text-sm font-medium text-slate-600 dark:text-slate-300">
-                            Division
-                            <input
-                              type="text"
-                              className="input mt-1"
-                              value={historyEditForm.division}
-                              onChange={(e) => updateHistoryForm('division', e.target.value)}
-                              disabled={historyProcessingId === historyEditRecord.id}
-                            />
-                          </label>
-                          <label className="text-sm font-medium text-slate-600 dark:text-slate-300">
-                            Sales Organization
-                            <input
-                              type="text"
-                              className="input mt-1"
-                              value={historyEditForm.salesOrganization}
-                              onChange={(e) => updateHistoryForm('salesOrganization', e.target.value)}
-                              disabled={historyProcessingId === historyEditRecord.id}
-                            />
-                          </label>
-                          <label className="text-sm font-medium text-slate-600 dark:text-slate-300">
-                            Sales Office
-                            <input
-                              type="text"
-                              className="input mt-1"
-                              value={historyEditForm.salesOffice}
-                              onChange={(e) => updateHistoryForm('salesOffice', e.target.value)}
-                              disabled={historyProcessingId === historyEditRecord.id}
-                            />
-                          </label>
-                          <label className="text-sm font-medium text-slate-600 dark:text-slate-300">
-                            Sales Group
-                            <input
-                              type="text"
-                              className="input mt-1"
-                              value={historyEditForm.salesGroup}
-                              onChange={(e) => updateHistoryForm('salesGroup', e.target.value)}
-                              disabled={historyProcessingId === historyEditRecord.id}
-                            />
-                          </label>
-                          <label className="text-sm font-medium text-slate-600 dark:text-slate-300">
-                            Sales Representative
-                            <input
-                              type="text"
-                              className="input mt-1"
-                              value={historyEditForm.salesRepresentative}
-                              onChange={(e) => updateHistoryForm('salesRepresentative', e.target.value)}
                               disabled={historyProcessingId === historyEditRecord.id}
                             />
                           </label>
@@ -1665,6 +2263,24 @@ export function HomePage() {
                 {validationOverflowCount > 0 && (
                   <p className="mt-2 text-xs text-red-600 dark:text-red-300">
                     และยังมีปัญหาเพิ่มเติมอีก {validationOverflowCount} จุด
+                  </p>
+                )}
+              </div>
+            )}
+            {validationWarnings.length > 0 && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50/90 px-4 py-3 text-sm text-amber-800 dark:border-amber-900/60 dark:bg-amber-900/30 dark:text-amber-200">
+                <p className="font-medium">รายละเอียดคำเตือน:</p>
+                <ul className="mt-2 space-y-1">
+                  {validationWarnings.map((warn, idx) => (
+                    <li key={idx} className="flex gap-2">
+                      <span className="font-semibold text-amber-600 dark:text-amber-300">•</span>
+                      <span>{warn}</span>
+                    </li>
+                  ))}
+                </ul>
+                {validationWarningOverflowCount > 0 && (
+                  <p className="mt-2 text-xs text-amber-600 dark:text-amber-300">
+                    และยังมีคำเตือนเพิ่มเติมอีก {validationWarningOverflowCount} จุด
                   </p>
                 )}
               </div>

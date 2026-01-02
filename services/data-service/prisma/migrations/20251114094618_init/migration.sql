@@ -76,6 +76,8 @@ CREATE TABLE "forecast_run" (
     "run_id" BIGSERIAL NOT NULL,
     "anchor_month" DATE NOT NULL,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "method" TEXT,
+    "notes" TEXT,
 
     CONSTRAINT "forecast_run_pkey" PRIMARY KEY ("run_id")
 );
@@ -106,6 +108,68 @@ CREATE TABLE "fact_forecast" (
     CONSTRAINT "fact_forecast_pkey" PRIMARY KEY ("run_id","company_id","dept_id","sku_id","sales_org_id","dc_id","month_id")
 );
 
+-- CreateTable
+CREATE TABLE "saleforecast" (
+    "id" BIGSERIAL NOT NULL,
+    "anchor_month" DATE NOT NULL,
+    "company_code" TEXT,
+    "company_desc" TEXT,
+    "material_code" TEXT,
+    "material_desc" TEXT,
+    "forecast_qty" DECIMAL(18,4) NOT NULL,
+    "metadata" JSONB,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "saleforecast_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "audit_logs" (
+    "id" BIGSERIAL NOT NULL,
+    "service" TEXT NOT NULL,
+    "endpoint" TEXT NOT NULL,
+    "action" TEXT NOT NULL,
+    "record_id" TEXT,
+    "performed_by" TEXT,
+    "metadata" JSONB,
+    "performed_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "user_id" TEXT,
+    "user_email" TEXT,
+    "user_username" TEXT,
+    "client_id" TEXT,
+
+    CONSTRAINT "audit_logs_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "staging_forecast_uploads" (
+    "id" BIGSERIAL NOT NULL,
+    "batch_id" UUID NOT NULL,
+    "raw_json" JSONB NOT NULL,
+    "imported_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "errors" JSONB,
+
+    CONSTRAINT "staging_forecast_uploads_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "monthly_access_control" (
+    "id" BIGSERIAL NOT NULL,
+    "user_email" TEXT NOT NULL,
+    "user_id" TEXT,
+    "user_name" TEXT,
+    "anchor_month" DATE NOT NULL,
+    "is_locked" BOOLEAN NOT NULL DEFAULT false,
+    "locked_by" TEXT,
+    "locked_at" TIMESTAMP(3),
+    "notes" TEXT,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "monthly_access_control_pkey" PRIMARY KEY ("id")
+);
+
 -- CreateIndex
 CREATE UNIQUE INDEX "dim_company_company_code_key" ON "dim_company"("company_code");
 
@@ -131,10 +195,22 @@ CREATE UNIQUE INDEX "dim_sales_org_division_sales_organization_sales_office_sale
 CREATE UNIQUE INDEX "dim_month_yyyy_mm_key" ON "dim_month"("yyyy_mm");
 
 -- CreateIndex
-CREATE INDEX "idx_fact_forecast_month" ON "fact_forecast"("month_id");
+CREATE INDEX "idx_saleforecast_anchor_month" ON "saleforecast"("anchor_month");
 
 -- CreateIndex
-CREATE INDEX "idx_fact_forecast_company" ON "fact_forecast"("company_id");
+CREATE INDEX "idx_saleforecast_company_code" ON "saleforecast"("company_code");
 
 -- CreateIndex
-CREATE INDEX "idx_fact_forecast_sku" ON "fact_forecast"("sku_id");
+CREATE INDEX "idx_saleforecast_material_code" ON "saleforecast"("material_code");
+
+-- CreateIndex
+CREATE INDEX "idx_audit_logs_action" ON "audit_logs"("action");
+
+-- CreateIndex
+CREATE INDEX "idx_audit_logs_performed_at" ON "audit_logs"("performed_at");
+
+-- CreateIndex
+CREATE INDEX "idx_monthly_access_anchor_month" ON "monthly_access_control"("anchor_month");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "monthly_access_control_user_email_anchor_month_key" ON "monthly_access_control"("user_email", "anchor_month");

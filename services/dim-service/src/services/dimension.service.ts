@@ -212,16 +212,37 @@ export async function listSkus(params: DimensionListQuery): Promise<PaginatedRes
 		}
 	}
 
-	const where = q
-		? {
-				OR: [
-                { pack_size: { contains: q, mode: Prisma.QueryMode.insensitive } },
-                { material: { is: { material_code: { contains: q, mode: Prisma.QueryMode.insensitive } } } },
-                { material: { is: { material_desc: { contains: q, mode: Prisma.QueryMode.insensitive } } } },
-                { uom: { is: { uom_code: { contains: q, mode: Prisma.QueryMode.insensitive } } } }
-				]
-			}
-		: undefined;
+	let where: Prisma.dim_skuWhereInput | undefined;
+	if (q) {
+		const [materialMatches, uomMatches] = await Promise.all([
+			prisma.dim_material.findMany({
+				where: {
+					OR: [
+						{ material_code: { contains: q, mode: Prisma.QueryMode.insensitive } },
+						{ material_desc: { contains: q, mode: Prisma.QueryMode.insensitive } }
+					]
+				},
+				select: { material_id: true }
+			}),
+			prisma.dim_uom.findMany({
+				where: { uom_code: { contains: q, mode: Prisma.QueryMode.insensitive } },
+				select: { uom_id: true }
+			})
+		]);
+
+		const materialIds = materialMatches.map((item) => item.material_id);
+		const uomIds = uomMatches.map((item) => item.uom_id);
+		const orConditions: Prisma.dim_skuWhereInput[] = [
+			{ pack_size: { contains: q, mode: Prisma.QueryMode.insensitive } }
+		];
+		if (materialIds.length > 0) {
+			orConditions.push({ material_id: { in: materialIds } });
+		}
+		if (uomIds.length > 0) {
+			orConditions.push({ uom_id: { in: uomIds } });
+		}
+		where = { OR: orConditions };
+	}
 
 	const records = await prisma.dim_sku.findMany({
 		where,

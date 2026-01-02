@@ -1,8 +1,7 @@
-import type { Request, Response } from 'express';
+import type { Request, Response, RequestHandler } from 'express';
 import { Router } from 'express';
-import fetch from 'node-fetch';
+import multer from 'multer';
 import { dimensionListQuerySchema } from '../schemas/dimension.schema.js';
-import { config } from '../config/config.js';
 import {
   listCompanies,
   listDepts,
@@ -13,8 +12,16 @@ import {
   listMonths,
   mapServiceError
 } from '../services/dimension.service.js';
+import {
+  importCompaniesFromCsv,
+  importDeptsFromCsv,
+  importMaterialSkuUomFromCsv,
+  ImportValidationError
+} from '../services/dimensionImport.service.js';
 
 const router = Router();
+const upload = multer();
+const uploadSingle: RequestHandler = upload.single('file') as unknown as RequestHandler;
 
 type DimensionListFn = (params: Parameters<typeof listCompanies>[0]) => Promise<{ data: unknown[]; nextCursor: string | null }>;
 
@@ -41,36 +48,47 @@ router.get('/materials', createHandler(listMaterials));
 router.get('/skus', createHandler(listSkus));
 router.get('/sales-orgs', createHandler(listSalesOrgs));
 router.get('/months', createHandler(listMonths));
-router.post('/import', async (req: Request, res: Response) => {
-  const apiKey = req.header('X-API-Key') || '';
-  const headers: Record<string, string> = {
-    'X-API-Key': apiKey
-  };
-  const contentType = req.headers['content-type'];
-  if (typeof contentType === 'string') {
-    headers['Content-Type'] = contentType;
-  }
-  const requestId = (req as any).requestId || req.header('X-Request-ID');
-  if (requestId) {
-    headers['X-Request-ID'] = requestId;
-  }
 
+async function handleCsvImport(
+  req: Request,
+  res: Response,
+  importer: (buffer: Buffer) => Promise<{ imported: number }>
+) {
+  if (!req.file) {
+    return res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'file required' } });
+  }
   try {
-    const init: any = {
-      method: 'POST',
-      headers,
-      body: req as any,
-      duplex: 'half'
-    };
-    const upstream = await fetch(config.ingestUploadUrl, init);
-    const responseBuffer = Buffer.from(await upstream.arrayBuffer());
-    upstream.headers.forEach((value, key) => {
-      if (key.toLowerCase() === 'content-length') return;
-      res.setHeader(key, value);
-    });
-    return res.status(upstream.status).send(responseBuffer);
+    const result = await importer(req.file.buffer);
+    return res.json({ data: result });
   } catch (error) {
-    return res.status(502).json({ error: { code: 'DIM_UPLOAD_PROXY_FAILED', message: 'failed to forward upload to ingest service' } });
+    if (error instanceof ImportValidationError) {
+      return res.status(error.status).json({ error: { code: error.code, message: error.message } });
+    }
+    return res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'import failed' } });
+  }
+}
+
+router.post('/depts/import', uploadSingle, (req, res) => handleCsvImport(req, res, importDeptsFromCsv));
+router.post('/companies/import', uploadSingle, (req, res) =>
+  handleCsvImport(req, res, importCompaniesFromCsv)
+);
+router.post('/material-sku-uom/import', uploadSingle, (req, res) =>
+  handleCsvImport(req, res, importMaterialSkuUomFromCsv)
+);
+
+router.post('/import', uploadSingle, async (req: Request, res: Response) => {
+  const target = String((req.body as any)?.target || '');
+  switch (target) {
+    case 'depts':
+      return handleCsvImport(req, res, importDeptsFromCsv);
+    case 'companies':
+      return handleCsvImport(req, res, importCompaniesFromCsv);
+    case 'material-sku-uom':
+      return handleCsvImport(req, res, importMaterialSkuUomFromCsv);
+    default:
+      return res
+        .status(400)
+        .json({ error: { code: 'BAD_REQUEST', message: 'target must be provided' } });
   }
 });
 

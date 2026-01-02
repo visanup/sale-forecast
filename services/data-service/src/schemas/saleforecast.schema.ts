@@ -21,8 +21,6 @@ export const salesForecastCreateSchema = z.object({
   metadata: z.record(z.any()).optional()
 });
 
-export const salesForecastUpdateSchema = salesForecastCreateSchema.partial({
-  anchor_month: true
-}).extend({
+export const salesForecastUpdateSchema = salesForecastCreateSchema.partial().extend({
   anchor_month: anchorMonthSchema.optional()
 });

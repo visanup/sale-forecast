@@ -1,19 +1,30 @@
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
-import { Mail, Lock, ArrowRight, LogIn, Shield, Zap, BarChart3 } from 'lucide-react';
+import { Mail, Lock, ArrowRight, LogIn, Shield, Zap, BarChart3, CheckCircle2 } from 'lucide-react';
+import { MODULE_CONFIG, MODULE_LIST, normalizeModuleId, type ModuleId } from '../constants/modules';
+
+const AVAILABLE_MODULES = MODULE_LIST.filter((module) => module.isAvailable);
+const AVAILABLE_MODULE_IDS = (
+  AVAILABLE_MODULES.length
+    ? AVAILABLE_MODULES.map((module) => module.id)
+    : ['AHB']
+) as [ModuleId, ...ModuleId[]];
 
 const schema = z.object({
   email: z.string().email(),
-  password: z.string().min(6)
+  password: z.string().min(6),
+  module: z.enum(AVAILABLE_MODULE_IDS, { required_error: 'Please select a module' })
 });
 type FormValues = z.infer<typeof schema> & { remember?: boolean };
 
 export function LoginPage() {
   const storageKey = 'betagro.login.remember';
+  const lastModuleKey = 'betagro.module.last';
   let defaults: Partial<FormValues> = {};
+  let rememberedModule: ModuleId | undefined;
   try {
     const saved = typeof window !== 'undefined' ? window.localStorage.getItem(storageKey) : null;
     if (saved) {
@@ -23,31 +34,58 @@ export function LoginPage() {
         password: parsed.password || '',
         remember: true,
       } as Partial<FormValues>;
+      if (parsed.module) {
+        rememberedModule = normalizeModuleId(parsed.module);
+      }
     }
   } catch {}
 
-  const { register, handleSubmit, formState: { errors, isSubmitting }, setError } = useForm<FormValues>({
+  let lastModule: ModuleId | undefined;
+  try {
+    const storedModule = typeof window !== 'undefined' ? window.localStorage.getItem(lastModuleKey) : null;
+    if (storedModule) {
+      lastModule = normalizeModuleId(storedModule);
+    }
+  } catch {}
+
+  const location = useLocation();
+  const searchParams = new URLSearchParams(location.search);
+  const requestedModule = searchParams.get('module');
+  const defaultModule = normalizeModuleId(requestedModule ?? rememberedModule ?? lastModule ?? null);
+  defaults.module = defaultModule;
+
+  const { register, handleSubmit, formState: { errors, isSubmitting }, setError, watch } = useForm<FormValues>({
     resolver: zodResolver(schema),
     defaultValues: defaults as any,
   });
   const navigate = useNavigate();
   const { login } = useAuth();
+  const activeModule = (watch('module') as ModuleId | undefined) ?? defaultModule;
+  const signupHref = `/signup?module=${activeModule}`;
 
   async function onSubmit(values: FormValues) {
     try {
-      await login(values.email, values.password);
+      const authResult = await login(values.email, values.password);
       // Remember email/password if opted-in
       try {
         if (values.remember) {
           window.localStorage.setItem(storageKey, JSON.stringify({
             email: values.email,
             password: values.password,
+            module: values.module,
           }));
         } else {
           window.localStorage.removeItem(storageKey);
         }
+        window.localStorage.setItem(lastModuleKey, values.module);
       } catch {}
-      navigate('/');
+      const destination = MODULE_CONFIG[values.module]?.basePath ?? '/';
+      if (authResult?.user?.mustChangePassword) {
+        const encodedNext = encodeURIComponent(destination);
+        navigate(`/force-password-change?module=${values.module}&next=${encodedNext}`);
+      } else {
+        navigate(destination);
+      }
     } catch (e: any) {
       setError('root', { message: e.message || 'Login failed' });
     }
@@ -84,6 +122,74 @@ export function LoginPage() {
           {/* Login Form */}
           <div className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-xl rounded-2xl shadow-2xl border border-white/20 dark:border-gray-700/20 p-8 animate-fade-in-up">
             <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+              {/* Module Selection */}
+              <div className="space-y-3">
+                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Select a module to continue
+                </label>
+                <div className="grid grid-cols-1 gap-3">
+                  {MODULE_LIST.map((moduleOption) => {
+                    const isDisabled = moduleOption.isAvailable === false;
+                    const isSelected = !isDisabled && activeModule === moduleOption.id;
+                    const cardStateClass = isDisabled
+                      ? 'cursor-not-allowed border-dashed border-gray-300 dark:border-gray-700 bg-gray-50/80 dark:bg-gray-800/40 opacity-60'
+                      : isSelected
+                        ? 'cursor-pointer border-indigo-500 shadow-lg ring-2 ring-indigo-200/50 dark:ring-indigo-500/30 bg-white dark:bg-gray-800'
+                        : 'cursor-pointer border-gray-200/70 dark:border-gray-700/70 hover:border-indigo-300/70 hover:bg-white/70 dark:hover:bg-gray-800/40';
+                    return (
+                      <label
+                        key={moduleOption.id}
+                        className={`rounded-2xl border p-4 transition-all ${cardStateClass}`}
+                        aria-disabled={isDisabled}
+                      >
+                        <input
+                          type="radio"
+                          value={moduleOption.id}
+                          className="sr-only"
+                          disabled={isDisabled}
+                          {...register('module')}
+                        />
+                        <div className="flex items-start justify-between gap-4">
+                          <div>
+                            <p className="text-base font-semibold text-gray-900 dark:text-white">
+                              {moduleOption.title}
+                            </p>
+                            <p className="text-sm text-gray-600 dark:text-gray-400">
+                              {moduleOption.description}
+                            </p>
+                          </div>
+                          {isSelected ? (
+                            <CheckCircle2 className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+                          ) : null}
+                        </div>
+                        <div className="flex flex-wrap gap-2 mt-4">
+                          {isDisabled ? (
+                            <span className="inline-flex items-center rounded-full bg-gray-100 px-3 py-1 text-xs font-semibold text-gray-600 dark:bg-gray-800/80 dark:text-gray-300">
+                              Coming soon
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center rounded-full bg-green-50 px-3 py-1 text-xs font-semibold text-green-600 dark:bg-green-900/40 dark:text-green-300">
+                              Available now
+                            </span>
+                          )}
+                        </div>
+                        {isDisabled ? (
+                          <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                            Feed Demand Forecasting will be available in a future release.
+                          </p>
+                        ) : null}
+                      </label>
+                    );
+                  })}
+                </div>
+                {errors.module && (
+                  <p className="text-sm text-red-500 flex items-center">
+                    <span className="w-1 h-1 bg-red-500 rounded-full mr-2"></span>
+                    {errors.module.message}
+                  </p>
+                )}
+              </div>
+
               {/* Email Field */}
               <div className="space-y-2">
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
@@ -176,7 +282,7 @@ export function LoginPage() {
               <p className="text-sm text-gray-600 dark:text-gray-400">
                 Don't have an account?{' '}
                 <Link 
-                  to="/signup" 
+                  to={signupHref} 
                   className="font-semibold text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300 transition-colors duration-200"
                 >
                   Create one here
@@ -211,4 +317,3 @@ export function LoginPage() {
     </div>
   );
 }
-

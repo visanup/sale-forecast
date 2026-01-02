@@ -51,6 +51,8 @@ services:
       - INTERNAL_SHARED_SECRET=dev-internal-secret
       - JWT_ACCESS_SECRET=NYr5g7vZIxvDja90w5UYoxIj-HxcYDyrBnKDRB9dQ-w
       - JWT_REFRESH_SECRET=0EnadxxwuzghQMsUDzbXxQLGx4rjqcNtUOJpkBmJYp0=
+      - DATA_SERVICE_URL=http://data-service:6603
+      - DATA_SERVICE_API_KEY=sf_4e77abfe2e799431a21a9bf586f2a67fb518910e2f1b50c346b3b80fb9bdf5ca
       # 🔻 ปิดระบบอีเมล/ยืนยันอีเมล
       - EMAIL_ENABLED=false
       - EMAIL_VERIFICATION_REQUIRED=false
@@ -82,6 +84,8 @@ services:
       - REDIS_PORT=6379
       - INTERNAL_SHARED_SECRET=dev-internal-secret
       - AUTH_VALIDATE_URL=http://auth-service:6601/internal/validate
+      - AUTH_SERVICE_URL=http://auth-service:6601
+      - MONTHLY_ACCESS_SEED_INTERVAL_MS=86400000
       - STATIC_API_KEY=sf_4e77abfe2e799431a21a9bf586f2a67fb518910e2f1b50c346b3b80fb9bdf5ca
     depends_on:
       postgres:

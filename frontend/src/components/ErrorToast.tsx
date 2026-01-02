@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { AlertCircle, X } from 'lucide-react';
+import { AlertCircle, AlertTriangle, Info, X } from 'lucide-react';
 import { useErrorLog } from '../hooks/useErrorLog';
 
 const AUTO_HIDE_MS = 6000;
@@ -33,15 +33,47 @@ export function ErrorToast() {
     second: '2-digit'
   });
 
+  const severity = activeLog.severity ?? 'error';
+  const styleMap = {
+    error: {
+      container:
+        'border-red-200 bg-white/95 ring-red-500/20 dark:border-red-500/40 dark:bg-gray-900/95 dark:ring-red-500/30',
+      iconBg: 'bg-red-50 dark:bg-red-500/10',
+      iconColor: 'text-red-600 dark:text-red-400',
+      title: 'พบข้อผิดพลาด',
+      icon: AlertCircle
+    },
+    warning: {
+      container:
+        'border-amber-200 bg-white/95 ring-amber-500/20 dark:border-amber-500/40 dark:bg-gray-900/95 dark:ring-amber-500/30',
+      iconBg: 'bg-amber-50 dark:bg-amber-500/10',
+      iconColor: 'text-amber-600 dark:text-amber-400',
+      title: 'พบคำเตือน',
+      icon: AlertTriangle
+    },
+    info: {
+      container:
+        'border-blue-200 bg-white/95 ring-blue-500/20 dark:border-blue-500/40 dark:bg-gray-900/95 dark:ring-blue-500/30',
+      iconBg: 'bg-blue-50 dark:bg-blue-500/10',
+      iconColor: 'text-blue-600 dark:text-blue-400',
+      title: 'แจ้งเตือน',
+      icon: Info
+    }
+  } as const;
+  const activeStyle = styleMap[severity];
+  const Icon = activeStyle.icon;
+
   return (
     <div className="fixed top-24 right-6 z-[60] w-full max-w-xs sm:max-w-sm md:max-w-md">
-      <div className="rounded-2xl border border-red-200 bg-white/95 shadow-2xl ring-1 ring-red-500/20 backdrop-blur dark:border-red-500/40 dark:bg-gray-900/95 dark:ring-red-500/30">
+      <div
+        className={`rounded-2xl border shadow-2xl ring-1 backdrop-blur ${activeStyle.container}`}
+      >
         <div className="flex items-start gap-3 p-4">
-          <div className="mt-1 rounded-full bg-red-50 p-2 dark:bg-red-500/10">
-            <AlertCircle className="h-5 w-5 text-red-600 dark:text-red-400" aria-hidden="true" />
+          <div className={`mt-1 rounded-full p-2 ${activeStyle.iconBg}`}>
+            <Icon className={`h-5 w-5 ${activeStyle.iconColor}`} aria-hidden="true" />
           </div>
           <div className="flex-1 text-sm">
-            <p className="font-semibold text-gray-900 dark:text-white">พบข้อผิดพลาด</p>
+            <p className="font-semibold text-gray-900 dark:text-white">{activeStyle.title}</p>
             <p className="mt-1 text-gray-700 dark:text-gray-200">{activeLog.message}</p>
             {activeLog.source && (
               <p className="mt-2 text-xs uppercase tracking-wide text-gray-400 dark:text-gray-500">

@@ -1,34 +1,32 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
-import { ChevronLeft, ChevronRight, Loader2, Pencil, Trash2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Loader2, Pencil, Trash2, CheckCircle2, Undo2 } from 'lucide-react';
 import { SalesForecastRecord } from '../services/api';
 import { DimSource } from '../services/dimSource';
+import {
+  formatConfirmationDetail,
+  getHistoryConfirmationSnapshot,
+  resolveLastActorLabel,
+  type HistoryConfirmationSnapshot
+} from '../utils/historyConfirmation';
 
-type MonthColumnKey = 'n_2' | 'n_1' | 'n' | 'n1' | 'n2' | 'n3';
+type MonthColumnKey = 'n1' | 'n2' | 'n3';
+type ConfirmAction = 'confirm' | 'unconfirm';
 
 type HistoryDisplayRow = {
   id: string;
   dept_code: string;
   company_desc: string;
   company_code: string;
-  sap_code_alt: string;
+  material_code: string;
   material_desc: string;
   pack_size: string;
   uom_code: string;
-  n_2: string;
-  n_1: string;
-  n: string;
   n1: string;
   n2: string;
   n3: string;
-  price: string;
-  division: string;
-  sales_organization: string;
-  sales_office: string;
-  sales_group: string;
-  sales_representative: string;
-  dc_code: string;
   last_user: string;
+  confirm_status: string;
   action: string;
   performed_at: string;
 };
@@ -38,9 +36,6 @@ type TableColumn =
   | { key: keyof HistoryDisplayRow; label: string; className?: string };
 
 const MONTH_COLUMNS: Array<{ key: MonthColumnKey; label: string; delta: number }> = [
-  { key: 'n_2', label: 'n-2', delta: -2 },
-  { key: 'n_1', label: 'n-1', delta: -1 },
-  { key: 'n', label: 'n', delta: 0 },
   { key: 'n1', label: 'n+1', delta: 1 },
   { key: 'n2', label: 'n+2', delta: 2 },
   { key: 'n3', label: 'n+3', delta: 3 }
@@ -49,19 +44,13 @@ const MONTH_COLUMNS: Array<{ key: MonthColumnKey; label: string; delta: number }
 const TABLE_COLUMNS: TableColumn[] = [
   { key: 'dept_code', label: 'หน่วยงาน' },
   { key: 'company_desc', label: 'ชื่อบริษัท' },
-  { key: 'company_code', label: 'customer_code' },
-  { key: 'sap_code_alt', label: 'material_code' },
+  { key: 'company_code', label: 'SAP Code' },
+  { key: 'material_code', label: 'SAPCode' },
   { key: 'material_desc', label: 'ชื่อสินค้า' },
   { key: 'pack_size', label: 'Pack Size' },
   { key: 'uom_code', label: 'หน่วย' },
   ...MONTH_COLUMNS.map((col) => ({ key: col.key, label: col.label, type: 'number' as const })),
-  { key: 'price', label: 'Price', type: 'number' },
-  { key: 'division', label: 'Division' },
-  { key: 'sales_organization', label: 'Sales Organization' },
-  { key: 'sales_office', label: 'Sales Office' },
-  { key: 'sales_group', label: 'Sales Group' },
-  { key: 'sales_representative', label: 'Sales Representative' },
-  { key: 'dc_code', label: 'Distribution Channel' },
+  { key: 'confirm_status', label: 'Confirm' },
   { key: 'last_user', label: 'Last_User' },
   { key: 'action', label: 'Action' },
   { key: 'performed_at', label: 'Update_At' }
@@ -75,32 +64,23 @@ const HIGHLIGHT_HEADER_KEYS = new Set<keyof HistoryDisplayRow>([
   'dept_code',
   'company_desc',
   'company_code',
-  'sap_code_alt'
+  'material_code'
 ]);
 
 const DEFAULT_COLUMN_WIDTHS: Partial<Record<ResizableColumnKey, number>> = {
   __index: 70,
-  __actions: 140,
+  __actions: 210,
   dept_code: 150,
   company_desc: 220,
   company_code: 150,
-  sap_code_alt: 160,
+  material_code: 160,
   material_desc: 220,
   pack_size: 130,
   uom_code: 120,
-  price: 120,
-  division: 140,
-  sales_organization: 150,
-  sales_office: 150,
-  sales_group: 150,
-  sales_representative: 180,
-  dc_code: 150,
-  n_2: 110,
-  n_1: 110,
-  n: 110,
   n1: 110,
   n2: 110,
   n3: 110,
+  confirm_status: 140,
   last_user: 200,
   action: 160,
   performed_at: 220
@@ -138,18 +118,6 @@ function formatActionLabel(value: unknown): string {
   return toDisplayString(value);
 }
 
-function resolvePriceFromMetadata(metadata: Record<string, unknown>): number | undefined {
-  const candidates = ['price', 'unit_price', 'unit_price_snapshot'].map((key) => metadata[key]);
-  for (const candidate of candidates) {
-    if (typeof candidate === 'number' && Number.isFinite(candidate)) return candidate;
-    if (typeof candidate === 'string') {
-      const parsed = Number(candidate);
-      if (Number.isFinite(parsed)) return parsed;
-    }
-  }
-  return undefined;
-}
-
 type DisplayRowOptions = {
   companyCodeOverride?: string;
 };
@@ -159,20 +127,20 @@ function normalizeText(value: string | null | undefined): string | null {
   return value.trim().toLocaleLowerCase();
 }
 
-function buildDisplayRow(record: SalesForecastRecord, options?: DisplayRowOptions): HistoryDisplayRow {
+function buildDisplayRow(
+  record: SalesForecastRecord,
+  options?: DisplayRowOptions,
+  confirmation?: HistoryConfirmationSnapshot
+): HistoryDisplayRow {
   const metadata = record.metadata ?? {};
   const metadataRecord = metadata as Record<string, unknown>;
 
   const monthsMap: Record<MonthColumnKey, string> = {
-    n_2: '',
-    n_1: '',
-    n: '',
     n1: '',
     n2: '',
     n3: ''
   };
 
-  let derivedPrice: number | undefined;
   const months = Array.isArray(metadata.months) ? metadata.months : [];
   for (const entry of months) {
     if (!entry || typeof entry.month !== 'string') continue;
@@ -187,19 +155,8 @@ function buildDisplayRow(record: SalesForecastRecord, options?: DisplayRowOption
         monthsMap[column.key] = formatNumber(parsed);
       }
     }
-    if (derivedPrice === undefined && entry.price !== undefined && entry.price !== null) {
-      const priceValue = typeof entry.price === 'number' ? entry.price : Number(entry.price);
-      if (Number.isFinite(priceValue)) {
-        derivedPrice = Number(priceValue);
-      }
-    }
   }
 
-  if (derivedPrice === undefined) {
-    derivedPrice = resolvePriceFromMetadata(metadataRecord);
-  }
-
-  const sapCode = toDisplayString(record.material_code);
   const companyCode = (() => {
     const displayCompany = toDisplayString(record.company_code);
     if (displayCompany) return displayCompany;
@@ -208,11 +165,19 @@ function buildDisplayRow(record: SalesForecastRecord, options?: DisplayRowOption
     if (typeof metadataCompany === 'number') return String(metadataCompany);
     return '';
   })();
-  const sapCodeAlternateSource = ['SAPCode', 'company_code', 'sapCode']
-    .map((key) => metadataRecord[key])
-    .find((value) => typeof value === 'string' && value.trim().length > 0) as string | undefined;
-  const sapCodeAlt = sapCodeAlternateSource ?? sapCode;
+  const materialCode = (() => {
+    const displayMaterial = toDisplayString(record.material_code);
+    if (displayMaterial) return displayMaterial;
+    const metadataOptions = ['material_code', 'SAPCode', 'sapCode'];
+    for (const key of metadataOptions) {
+      const value = metadataRecord[key];
+      if (typeof value === 'string' && value.trim().length > 0) return value;
+      if (typeof value === 'number') return String(value);
+    }
+    return '';
+  })();
   const lastActor = record.last_actor;
+  const resolvedLastUser = resolveLastActorLabel(record);
 
   const formattedPerformedAt = (() => {
     if (!record.last_performed_at) return '';
@@ -229,24 +194,15 @@ function buildDisplayRow(record: SalesForecastRecord, options?: DisplayRowOption
     dept_code: toDisplayString(metadata.dept_code),
     company_desc: toDisplayString(record.company_desc),
     company_code: options?.companyCodeOverride ?? companyCode,
-    sap_code_alt: sapCodeAlt,
+    material_code: materialCode,
     material_desc: toDisplayString(record.material_desc),
     pack_size: toDisplayString(metadata.pack_size),
     uom_code: toDisplayString(metadata.uom_code),
-    n_2: monthsMap.n_2,
-    n_1: monthsMap.n_1,
-    n: monthsMap.n,
     n1: monthsMap.n1,
     n2: monthsMap.n2,
     n3: monthsMap.n3,
-    price: formatNumber(derivedPrice),
-    division: toDisplayString(metadata.division),
-    sales_organization: toDisplayString(metadata.sales_organization),
-    sales_office: toDisplayString(metadata.sales_office),
-    sales_group: toDisplayString(metadata.sales_group),
-    sales_representative: toDisplayString(metadata.sales_representative),
-    dc_code: toDisplayString(metadata.dc_code),
-    last_user: toDisplayString(lastActor?.user_username),
+    last_user: resolvedLastUser || toDisplayString(lastActor?.user_username),
+    confirm_status: confirmation?.label ?? '',
     action: formatActionLabel(record.last_action),
     performed_at: formattedPerformedAt
   };
@@ -256,11 +212,23 @@ type HistoryTableProps = {
   records: SalesForecastRecord[];
   onEdit: (record: SalesForecastRecord) => void;
   onDelete: (record: SalesForecastRecord) => void;
+  onConfirmToggle: (record: SalesForecastRecord, action: ConfirmAction) => void;
   busyRowId?: string | null;
   deletingRowId?: string | null;
+  confirmingRowId?: string | null;
+  bulkConfirming?: boolean;
 };
 
-export function HistoryTable({ records, onEdit, onDelete, busyRowId, deletingRowId }: HistoryTableProps) {
+export function HistoryTable({
+  records,
+  onEdit,
+  onDelete,
+  onConfirmToggle,
+  busyRowId,
+  deletingRowId,
+  confirmingRowId,
+  bulkConfirming
+}: HistoryTableProps) {
   const [companyCodeLookup, setCompanyCodeLookup] = useState<Record<string, string>>({});
 
   useEffect(() => {
@@ -318,7 +286,12 @@ export function HistoryTable({ records, onEdit, onDelete, busyRowId, deletingRow
       records.map((rec) => {
         const normalized = normalizeText(rec.company_desc);
         const override = normalized ? companyCodeLookup[normalized] : undefined;
-        return { display: buildDisplayRow(rec, { companyCodeOverride: override }), original: rec };
+        const confirmation = getHistoryConfirmationSnapshot(rec);
+        return {
+          display: buildDisplayRow(rec, { companyCodeOverride: override }, confirmation),
+          original: rec,
+          confirmation
+        };
       }),
     [records, companyCodeLookup]
   );
@@ -488,65 +461,105 @@ export function HistoryTable({ records, onEdit, onDelete, busyRowId, deletingRow
               </td>
             </tr>
           ) : (
-            paginatedRows.map((row, index) => (
-              <tr
-                key={row.display.id || `${startIndex + index}`}
-                className="border-b border-slate-200 bg-white odd:bg-white even:bg-slate-50 hover:bg-emerald-50/60 dark:border-slate-700 dark:bg-slate-900 dark:even:bg-slate-900/40 dark:hover:bg-slate-800"
-              >
-                <th
-                  className="sticky left-0 z-10 border border-slate-300 bg-slate-100 px-4 py-2 text-center text-xs font-semibold text-slate-600 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
-                  style={{ width: indexWidth, minWidth: indexWidth }}
+            paginatedRows.map((row, index) => {
+              const rowIsBusy = busyRowId === row.original.id || deletingRowId === row.original.id;
+              const confirmBusy = confirmingRowId === row.original.id || Boolean(bulkConfirming);
+              const confirmDisabled = rowIsBusy || confirmBusy;
+              const confirmAction: ConfirmAction = row.confirmation.confirmed ? 'unconfirm' : 'confirm';
+              const confirmButtonClass =
+                confirmAction === 'confirm'
+                  ? 'bg-emerald-600 hover:bg-emerald-700 focus:ring-emerald-400 dark:focus:ring-offset-slate-900'
+                  : 'bg-amber-600 hover:bg-amber-700 focus:ring-amber-400 dark:focus:ring-offset-slate-900';
+              const confirmIcon = confirmAction === 'confirm' ? (
+                <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+              ) : (
+                <Undo2 className="h-4 w-4" aria-hidden="true" />
+              );
+              const confirmTooltip = formatConfirmationDetail(row.confirmation);
+              const confirmBadgeClass = row.confirmation.confirmed
+                ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-200'
+                : 'bg-slate-200 text-slate-600 dark:bg-slate-800 dark:text-slate-300';
+
+              return (
+                <tr
+                  key={row.display.id || `${startIndex + index}`}
+                  className="border-b border-slate-200 bg-white odd:bg-white even:bg-slate-50 hover:bg-emerald-50/60 dark:border-slate-700 dark:bg-slate-900 dark:even:bg-slate-900/40 dark:hover:bg-slate-800"
                 >
-                  {startIndex + index + 1}
-                </th>
-                <td
-                  className="sticky z-10 whitespace-nowrap border border-slate-300 bg-white px-4 py-2 text-sm dark:border-slate-600 dark:bg-slate-900"
-                  style={{ left: indexWidth, width: actionsWidth, minWidth: actionsWidth }}
-                >
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-blue-600 text-white shadow transition hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 disabled:cursor-not-allowed disabled:bg-blue-400 dark:focus:ring-offset-slate-900"
-                      onClick={() => onEdit(row.original)}
-                      disabled={busyRowId === row.original.id || deletingRowId === row.original.id}
-                      aria-label="Edit row"
-                    >
-                      <Pencil className="h-4 w-4" aria-hidden="true" />
-                    </button>
-                    <button
-                      type="button"
-                      className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-red-600 text-white shadow transition hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-400 focus:ring-offset-1 disabled:cursor-not-allowed disabled:bg-red-400 dark:focus:ring-offset-slate-900"
-                      onClick={() => onDelete(row.original)}
-                      disabled={busyRowId === row.original.id || deletingRowId === row.original.id}
-                      aria-label={deletingRowId === row.original.id ? 'Deleting row' : 'Delete row'}
-                    >
-                      {deletingRowId === row.original.id ? (
-                        <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-                      ) : (
-                        <Trash2 className="h-4 w-4" aria-hidden="true" />
-                      )}
-                    </button>
-                  </div>
-                </td>
-                {TABLE_COLUMNS.map((column) => {
-                  const value = row.display[column.key];
-                  return (
-                    <td
-                      key={`${row.display.id}-${String(column.key)}`}
-                      className="border border-slate-200 px-4 py-2 text-sm text-slate-700 dark:border-slate-700 dark:text-slate-200"
-                      style={{
-                        width: getColumnWidth(column.key),
-                        minWidth: getColumnWidth(column.key)
-                      }}
-                    >
-                      <span className="block whitespace-pre-wrap break-words leading-relaxed">
-                        {value && value !== '' ? value : '-'}
-                      </span>
-                    </td>
-                  );
-                })}
-              </tr>
-            ))
+                  <th
+                    className="sticky left-0 z-10 border border-slate-300 bg-slate-100 px-4 py-2 text-center text-xs font-semibold text-slate-600 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
+                    style={{ width: indexWidth, minWidth: indexWidth }}
+                  >
+                    {startIndex + index + 1}
+                  </th>
+                  <td
+                    className="sticky z-10 whitespace-nowrap border border-slate-300 bg-white px-4 py-2 text-sm dark:border-slate-600 dark:bg-slate-900"
+                    style={{ left: indexWidth, width: actionsWidth, minWidth: actionsWidth }}
+                  >
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        className={`inline-flex h-8 w-8 items-center justify-center rounded-full text-white shadow transition focus:outline-none focus:ring-2 focus:ring-offset-1 disabled:cursor-not-allowed disabled:bg-slate-400 ${confirmButtonClass}`}
+                        onClick={() => onConfirmToggle(row.original, confirmAction)}
+                        disabled={confirmDisabled}
+                        aria-label={confirmAction === 'confirm' ? 'Confirm row' : 'Cancel confirm'}
+                        title={confirmTooltip}
+                      >
+                        {confirmBusy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : confirmIcon}
+                      </button>
+                      <button
+                        type="button"
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-blue-600 text-white shadow transition hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 disabled:cursor-not-allowed disabled:bg-blue-400 dark:focus:ring-offset-slate-900"
+                        onClick={() => onEdit(row.original)}
+                        disabled={rowIsBusy}
+                        aria-label="Edit row"
+                      >
+                        <Pencil className="h-4 w-4" aria-hidden="true" />
+                      </button>
+                      <button
+                        type="button"
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-red-600 text-white shadow transition hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-400 focus:ring-offset-1 disabled:cursor-not-allowed disabled:bg-red-400 dark:focus:ring-offset-slate-900"
+                        onClick={() => onDelete(row.original)}
+                        disabled={rowIsBusy}
+                        aria-label={deletingRowId === row.original.id ? 'Deleting row' : 'Delete row'}
+                      >
+                        {deletingRowId === row.original.id ? (
+                          <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                        ) : (
+                          <Trash2 className="h-4 w-4" aria-hidden="true" />
+                        )}
+                      </button>
+                    </div>
+                  </td>
+                  {TABLE_COLUMNS.map((column) => {
+                    const value = row.display[column.key];
+                    const isConfirmColumn = column.key === 'confirm_status';
+                    return (
+                      <td
+                        key={`${row.display.id}-${String(column.key)}`}
+                        className="border border-slate-200 px-4 py-2 text-sm text-slate-700 dark:border-slate-700 dark:text-slate-200"
+                        style={{
+                          width: getColumnWidth(column.key),
+                          minWidth: getColumnWidth(column.key)
+                        }}
+                      >
+                        {isConfirmColumn ? (
+                          <span
+                            className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${confirmBadgeClass}`}
+                            title={confirmTooltip}
+                          >
+                            {value && value !== '' ? value : 'Pending'}
+                          </span>
+                        ) : (
+                          <span className="block whitespace-pre-wrap break-words leading-relaxed">
+                            {value && value !== '' ? value : '-'}
+                          </span>
+                        )}
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            })
           )}
         </tbody>
         </table>

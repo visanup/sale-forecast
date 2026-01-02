@@ -20,8 +20,20 @@ import {
 import { useAuth } from '../hooks/useAuth';
 import { useErrorLog } from '../hooks/useErrorLog';
 import { ErrorToast } from '../components/ErrorToast';
+import { MODULE_CONFIG, type ModuleId } from '../constants/modules';
 
-export function AppLayout() {
+type AppLayoutProps = {
+  module?: ModuleId;
+};
+
+export function AppLayout({ module = 'AHB' }: AppLayoutProps) {
+  const moduleConfig = MODULE_CONFIG[module];
+  const modulePath = (subpath = '') => buildModulePath(moduleConfig.basePath, subpath);
+  const { prefix: brandPrefix, highlight: brandHighlight } = splitBrandTitle(moduleConfig.title);
+  const homePath = modulePath();
+  const loginPath = `/login?module=${moduleConfig.id}`;
+  const signupPath = `/signup?module=${moduleConfig.id}`;
+
   // Simple role helpers (kept local to avoid cross-page imports)
   const ADMIN_ROLE_NAME = 'ADMIN';
   const normalizeRoleName = (value: unknown): string | null => {
@@ -46,6 +58,14 @@ export function AppLayout() {
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const notificationsRef = useRef<HTMLDivElement | null>(null);
   const { logs, unreadCount, markAllAsRead, clearLogs } = useErrorLog();
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem('betagro.module.last', moduleConfig.id);
+    } catch {
+      // no-op if storage blocked
+    }
+  }, [moduleConfig.id]);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -88,12 +108,22 @@ export function AppLayout() {
       <ErrorToast />
       <nav className="sticky top-0 z-30 bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border-b border-gray-200/60 dark:border-gray-800/60 shadow-sm">
         <div className="w-full px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <Link to="/" className="flex items-center gap-3 font-extrabold text-xl tracking-tight">
-            <div className="inline-flex items-center justify-center w-8 h-8 bg-gradient-to-r from-brand-600 to-blue-600 rounded-lg">
-              <BarChart3 className="w-5 h-5 text-white" />
-            </div>
+          <Link to={homePath} className="flex items-center gap-3 font-extrabold text-xl tracking-tight">
+            <img
+              src="/Betagro.png"
+              alt="Betagro"
+              className="w-14 h-14 rounded-lg object-contain"
+            />
             <span className="text-gray-900 dark:text-white">
-              Demand <span className="bg-gradient-to-r from-brand-600 to-blue-600 bg-clip-text text-transparent">Forecasting</span>
+              {brandPrefix}
+              {brandHighlight ? (
+                <>
+                  {' '}
+                  <span className="bg-gradient-to-r from-brand-600 to-blue-600 bg-clip-text text-transparent">
+                    {brandHighlight}
+                  </span>
+                </>
+              ) : null}
             </span>
           </Link>
           
@@ -103,7 +133,7 @@ export function AppLayout() {
           
           <div className="hidden sm:flex gap-6 items-center">
             <NavLink
-              to="/"
+              to={homePath}
               className={({ isActive }) =>
                 `flex items-center gap-2 px-3 py-2 rounded-lg font-medium transition-all duration-200 ${
                   isActive
@@ -116,7 +146,7 @@ export function AppLayout() {
               Home
             </NavLink>
             <NavLink
-              to="/guide"
+              to={modulePath('guide')}
               className={({ isActive }) =>
                 `flex items-center gap-2 px-3 py-2 rounded-lg font-medium transition-all duration-200 ${
                   isActive
@@ -128,6 +158,22 @@ export function AppLayout() {
               <BookOpen size={16} />
               Guide
             </NavLink>
+
+            {isAdminUser && (
+              <NavLink
+                to={modulePath('admin/users')}
+                className={({ isActive }) =>
+                  `flex items-center gap-2 px-3 py-2 rounded-lg font-medium transition-all duration-200 ${
+                    isActive
+                      ? 'text-brand-600 bg-brand-50 dark:bg-brand-900/20'
+                      : 'text-gray-700 dark:text-gray-300 hover:text-brand-600 hover:bg-gray-50 dark:hover:bg-gray-800'
+                  }`
+                }
+              >
+                <Shield size={16} />
+                Admin
+              </NavLink>
+            )}
 
             {isAuthenticated ? (
               <>
@@ -230,39 +276,46 @@ export function AppLayout() {
                       {isAdminUser && (
                         <>
                           <NavLink
-                            to="/api"
+                            to={modulePath('api')}
                             className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
                           >
                             <Code size={16} className="text-brand-600" />
                             <span>API Portal</span>
                           </NavLink>
                           <NavLink
-                            to="/api-keys"
+                            to={modulePath('api-keys')}
                             className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
                           >
                             <Key size={16} className="text-purple-600" />
                             <span>API Keys</span>
                           </NavLink>
                           <NavLink
-                            to="/logs"
+                            to={modulePath('logs')}
                             className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
                           >
                             <Terminal size={16} className="text-orange-600" />
                             <span>System Logs</span>
                           </NavLink>
                           <NavLink
-                            to="/admin/import"
+                            to={modulePath('admin/import')}
                             className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
                           >
                             <Database size={16} className="text-green-600" />
                             <span>Admin: Import</span>
+                          </NavLink>
+                          <NavLink
+                            to={modulePath('admin/monthly-access')}
+                            className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                          >
+                            <Shield size={16} className="text-indigo-600" />
+                            <span>Monthly Access</span>
                           </NavLink>
                           <div className="border-t border-gray-100 dark:border-gray-700 my-2"></div>
                         </>
                       )}
 
                       <NavLink
-                        to="/profile"
+                        to={modulePath('profile')}
                         className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
                       >
                         <User size={16} className="text-blue-600" />
@@ -283,7 +336,7 @@ export function AppLayout() {
             ) : (
               <>
                 <NavLink
-                  to="/login"
+                  to={loginPath}
                   className={({ isActive }) =>
                     `flex items-center gap-2 px-3 py-2 rounded-lg font-medium transition-all duration-200 ${
                       isActive
@@ -295,7 +348,7 @@ export function AppLayout() {
                   Sign in
                 </NavLink>
                 <NavLink
-                  to="/signup"
+                  to={signupPath}
                   className="flex items-center gap-2 px-3 py-2 rounded-lg font-medium text-white bg-gradient-to-r from-brand-600 to-blue-600 shadow hover:shadow-md transition-all duration-200"
                 >
                   Get started
@@ -308,7 +361,7 @@ export function AppLayout() {
           <div className="sm:hidden px-4 pb-4 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-800">
             <div className="py-4 space-y-2">
               <NavLink 
-                to="/" 
+                to={homePath} 
                 onClick={()=>setOpen(false)}
                 className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
               >
@@ -316,7 +369,7 @@ export function AppLayout() {
                 Home
               </NavLink>
               <NavLink 
-                to="/guide" 
+                to={modulePath('guide')} 
                 onClick={()=>setOpen(false)}
                 className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
               >
@@ -326,7 +379,7 @@ export function AppLayout() {
               {isAdminUser && (
                 <>
                   <NavLink 
-                    to="/api" 
+                    to={modulePath('api')} 
                     onClick={()=>setOpen(false)}
                     className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
                   >
@@ -334,7 +387,7 @@ export function AppLayout() {
                     API Portal
                   </NavLink>
                   <NavLink 
-                    to="/api-keys" 
+                    to={modulePath('api-keys')} 
                     onClick={()=>setOpen(false)}
                     className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
                   >
@@ -342,7 +395,7 @@ export function AppLayout() {
                     API Keys
                   </NavLink>
                   <NavLink 
-                    to="/logs" 
+                    to={modulePath('logs')} 
                     onClick={()=>setOpen(false)}
                     className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
                   >
@@ -350,12 +403,20 @@ export function AppLayout() {
                     System Logs
                   </NavLink>
                   <NavLink 
-                    to="/admin/import" 
+                    to={modulePath('admin/import')} 
                     onClick={()=>setOpen(false)}
                     className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
                   >
                     <Database size={16} />
                     Admin: Import
+                  </NavLink>
+                  <NavLink 
+                    to={modulePath('admin/monthly-access')} 
+                    onClick={()=>setOpen(false)}
+                    className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                  >
+                    <Shield size={16} />
+                    Monthly Access
                   </NavLink>
                   <div className="border-t border-gray-200 dark:border-gray-800 my-2"></div>
                 </>
@@ -364,7 +425,7 @@ export function AppLayout() {
               {isAuthenticated ? (
                 <>
                   <NavLink
-                    to="/profile"
+                    to={modulePath('profile')}
                     onClick={() => setOpen(false)}
                     className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
                   >
@@ -383,7 +444,7 @@ export function AppLayout() {
               ) : (
                 <>
                   <NavLink
-                    to="/login"
+                    to={loginPath}
                     onClick={() => setOpen(false)}
                     className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
                   >
@@ -391,7 +452,7 @@ export function AppLayout() {
                     Sign in
                   </NavLink>
                   <NavLink
-                    to="/signup"
+                    to={signupPath}
                     onClick={() => setOpen(false)}
                     className="flex items-center gap-3 px-3 py-2 rounded-lg bg-gradient-to-r from-brand-600 to-blue-600 text-white transition-colors"
                   >
@@ -418,7 +479,13 @@ export function AppLayout() {
               </div>
               <div>
                 <p className="font-semibold text-gray-900 dark:text-white">
-                  Demand <span className="text-brand-600">Forecasting</span>
+                  {brandPrefix}
+                  {brandHighlight ? (
+                    <>
+                      {' '}
+                      <span className="text-brand-600">{brandHighlight}</span>
+                    </>
+                  ) : null}
                 </p>
                 <p className="text-xs text-gray-500 dark:text-gray-400">v0.1.0</p>
               </div>
@@ -440,11 +507,35 @@ export function AppLayout() {
             </div>
             
             <p className="text-sm text-gray-500 dark:text-gray-400">
-              © {new Date().getFullYear()} Demand Forecasting. All rights reserved.
+              © {new Date().getFullYear()} {moduleConfig.footerLabel}. All rights reserved.
             </p>
           </div>
         </div>
       </footer>
     </div>
   );
+}
+
+function buildModulePath(basePath: string, subpath = ''): string {
+  const normalizedBase = basePath === '/' ? '' : basePath.replace(/\/+$/, '');
+  if (!subpath) {
+    return normalizedBase || '/';
+  }
+  const normalizedSubpath = subpath.replace(/^\/+/, '');
+  if (!normalizedSubpath) {
+    return normalizedBase || '/';
+  }
+  const combined = `${normalizedBase}/${normalizedSubpath}`;
+  return combined.startsWith('/') ? combined : `/${combined}`;
+}
+
+function splitBrandTitle(fullTitle: string, highlight = 'Forecasting'): { prefix: string; highlight: string | null } {
+  if (!fullTitle || !fullTitle.includes(highlight)) {
+    return { prefix: fullTitle, highlight: null };
+  }
+  const prefix = fullTitle.replace(highlight, '').trim();
+  return {
+    prefix: prefix.length > 0 ? prefix : fullTitle,
+    highlight
+  };
 }

@@ -67,6 +67,8 @@ NODE_ENV=development
 DATABASE_URL=postgres://app:app@postgres:5432/sales_forecast
 API_KEY_HASH_ALGO=argon2
 INTERNAL_SHARED_SECRET=dev-internal-secret
+DATA_SERVICE_URL=http://data-service:6603
+DATA_SERVICE_API_KEY=sf_dev_key_for_internal_calls
 ```
 
 #### ingest-service
@@ -76,6 +78,7 @@ NODE_ENV=development
 DATABASE_URL=postgres://app:app@postgres:5432/sales_forecast
 MAX_UPLOAD_MB=25
 INTERNAL_SHARED_SECRET=dev-internal-secret
+AUTH_VALIDATE_URL=http://auth-service:6601/internal/validate
 ```
 
 #### data-service
@@ -84,6 +87,10 @@ PORT=6603
 NODE_ENV=development
 DATABASE_URL=postgres://app:app@postgres:5432/sales_forecast
 INTERNAL_SHARED_SECRET=dev-internal-secret
+AUTH_VALIDATE_URL=http://auth-service:6601/internal/validate
+AUTH_SERVICE_URL=http://auth-service:6601
+STATIC_API_KEY=sf_dev_key_for_internal_calls
+MONTHLY_ACCESS_SEED_INTERVAL_MS=86400000
 ```
 
 #### dim-service
@@ -145,5 +152,3 @@ service-name/
 - CONFLICT
 - RATE_LIMITED
 - INTERNAL_ERROR
-
-

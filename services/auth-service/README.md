@@ -33,6 +33,14 @@ Additional scripts:
 - `npm run db:migrate` – apply database migrations
 - `npm run db:seed` – execute Prisma seed (`tsx prisma/seed.ts`)
 
+## Environment
+
+Common variables:
+
+- `PORT`, `NODE_ENV`, `DATABASE_URL`, `INTERNAL_SHARED_SECRET`, JWT secrets
+- `DATA_SERVICE_URL` – base URL for the data-service (used for monthly access provisioning)
+- `DATA_SERVICE_API_KEY` – API key passed as `X-API-Key` when calling `/v1/monthly-access/seed-default`
+
 ## Key Endpoints
 
 - Health checks: `GET /healthz`, `GET /readyz`, `GET /metrics`
@@ -42,4 +50,3 @@ Additional scripts:
 - Admin guard route (requires ADMIN role): `GET /admin/ping` → `{ "ok": true }`
 
 All issued JWT access tokens carry the `sub`, `email`, and `role` claims so downstream services can enforce role-based access control.
-

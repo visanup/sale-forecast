@@ -79,6 +79,8 @@ model forecast_run {
   run_id       BigInt   @id @default(autoincrement())
   anchor_month DateTime @db.Date
   created_at   DateTime @default(now())
+  method       String?
+  notes        String?
 
   @@map("forecast_run")
 }
@@ -106,9 +108,6 @@ model fact_forecast {
   revenue_snapshot    Decimal? @db.Decimal(18, 4)
 
   @@id([run_id, company_id, dept_id, sku_id, sales_org_id, dc_id, month_id])
-  @@index([company_id], map: "idx_fact_forecast_company")
-  @@index([month_id], map: "idx_fact_forecast_month")
-  @@index([sku_id], map: "idx_fact_forecast_sku")
   @@map("fact_forecast")
 }
 
@@ -116,41 +115,63 @@ model staging_forecast_uploads {
   id          BigInt   @id @default(autoincrement())
   batch_id    String   @db.Uuid
   raw_json    Json
-  imported_at DateTime @default(now()) @db.Timestamptz(6)
+  imported_at DateTime @default(now())
   errors      Json?
 
-  @@index([batch_id], map: "idx_staging_forecast_uploads_batch_id")
   @@map("staging_forecast_uploads")
 }
 
 model saleforecast {
   id            BigInt   @id @default(autoincrement())
   anchor_month  DateTime @db.Date
-  company_code  String?  @db.Text
-  company_desc  String?  @db.Text
-  material_code String?  @db.Text
-  material_desc String?  @db.Text
+  company_code  String?
+  company_desc  String?
+  material_code String?
+  material_desc String?
   forecast_qty  Decimal  @db.Decimal(18, 4)
   metadata      Json?
   created_at    DateTime @default(now())
-  updated_at    DateTime @updatedAt
+  updated_at    DateTime @default(now()) @updatedAt
 
+  @@index([anchor_month], map: "idx_saleforecast_anchor_month")
+  @@index([company_code], map: "idx_saleforecast_company_code")
+  @@index([material_code], map: "idx_saleforecast_material_code")
   @@map("saleforecast")
 }
 
 model audit_logs {
-  id            BigInt   @id @default(autoincrement()) @db.BigInt
-  service       String   @db.Text
-  endpoint      String   @db.Text
-  action        String   @db.Text
-  record_id     String?  @db.Text
-  performed_by  String?  @db.Text
-  user_id       String?  @db.Text
-  user_email    String?  @db.Text
-  user_username String?  @db.Text
-  client_id     String?  @db.Text
+  id            BigInt   @id @default(autoincrement())
+  service       String
+  endpoint      String
+  action        String
+  record_id     String?
+  performed_by  String?
   metadata      Json?
   performed_at  DateTime @default(now())
+  user_id       String?
+  user_email    String?
+  user_username String?
+  client_id     String?
 
+  @@index([action], map: "idx_audit_logs_action")
+  @@index([performed_at], map: "idx_audit_logs_performed_at")
   @@map("audit_logs")
+}
+
+model monthly_access_control {
+  id           BigInt   @id @default(autoincrement())
+  user_email   String
+  user_id      String?
+  user_name    String?
+  anchor_month DateTime @db.Date
+  is_locked    Boolean  @default(false)
+  locked_by    String?
+  locked_at    DateTime?
+  notes        String?
+  created_at   DateTime @default(now())
+  updated_at   DateTime @default(now()) @updatedAt
+
+  @@unique([user_email, anchor_month])
+  @@index([anchor_month], map: "idx_monthly_access_anchor_month")
+  @@map("monthly_access_control")
 }

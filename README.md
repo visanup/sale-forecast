@@ -416,3 +416,50 @@ CORS_ORIGINS=https://your-domain.com
 ## 📄 License
 
 This project is licensed under the MIT License.
+
+
+ภาพรวมระบบ
+
+ระบบนี้เป็นแพลตฟอร์มพยากรณ์ความต้องการแบบ end-to-end ที่แยกเป็น React frontend (พอร์ต 6600) และไมโครเซอร์วิส Node.js/Express หลายตัวบนพอร์ต 6601–6604 โดยทั้งหมดแชร์ PostgreSQL สำหรับข้อมูลธุรกิจและ Redis สำหรับแคช/ล็อก (README.md:3, README.md:5, docs/01-Architecture.md:42, docs/01-Architecture.md:96).
+แต่ละบริการเป็นโครงการ TypeScript อิสระ ใช้มาตรฐานเดียวกัน (pino, zod, Prisma) และสื่อสารผ่าน REST ด้วย Bearer token สำหรับผู้ใช้และ API Key สำหรับข้อมูล โดยบริการอื่นเรียก /internal/validate ของ auth-service ผ่าน INTERNAL_SHARED_SECRET (docs/03-Backend-Services.md:9, docs/03-Backend-Services.md:17, docs/01-Architecture.md:116).
+บริการ Backend
+
+auth-service จัดการผู้ใช้, JWT access/refresh, การสร้าง/เพิกถอน API key และยืนยันสิทธิ์ให้บริการอื่น (docs/01-Architecture.md:53, docs/03-Backend-Services.md:106).
+ingest-service รับไฟล์ Excel/CSV หรือบันทึกมือ, แปลงข้อมูล, ตรวจสอบ dimension, สร้าง forecast_run, และเขียน fact_forecast/fact_price (docs/01-Architecture.md:75, docs/03-Backend-Services.md:111).
+data-service ให้บริการดึง forecast, aggregates, ราคา, audit logs และเป็นเกตเวย์ดึง Redis logs (docs/01-Architecture.md:64, docs/04-API.md:93, docs/04-API.md:255, docs/04-API.md:328).
+dim-service ให้ endpoint อ่านข้อมูลมิติ (บริษัท, SKU, ช่องทาง, ยอดขาย ฯลฯ) เพื่อใช้ใน UI และ validation (docs/01-Architecture.md:86, docs/04-API.md:395).
+Frontend & UX
+
+Frontend ใช้ React + Vite + Tailwind พร้อมฟีเจอร์หลัก: ล็อกอิน/สมัคร, จัดการ API key, อัปโหลด Excel, กรอกด้วยมือ, พรีวิว API portal และหน้า Logs แบบเรียลไทม์ (docs/05-Frontend.md:45, docs/05-Frontend.md:141, docs/01-Architecture.md:42).
+มีแนวทาง UI/UX เพื่อให้หน้าตาพรีเมียม รองรับการตอบสนอง, โฟกัส state, lazy loading, error state รายแถว และ auto-refresh logs ทุก 5 วินาที (docs/05-Frontend.md:74, docs/05-Frontend.md:219, docs/05-Frontend.md:235).
+การเชื่อมต่อ API รวมศูนย์ใน services/api.ts โดยกำหนด URL ผ่าน VITE_* และจัดเก็บ API key ล่าสุดใน localStorage เพื่อใช้ซ้ำ (docs/05-Frontend.md:181, README.md:270).
+ข้อมูล & ฐานข้อมูล
+
+สคีมาหลักประกอบด้วยตาราง dimension (บริษัท, แผนก, ช่องทาง, UOM, วัสดุ, SKU, sales org, เดือน), fact (fact_forecast, fact_price) และตารางควบคุม (forecast_run, api_clients, api_keys, staging_forecast_uploads) เพื่อรองรับ long-format forecast รายเดือน (docs/02-Database.md:14).
+ข้อมูลจากไฟล์อินพุต map เข้าตารางมิติตาม code ต่าง ๆ, กระจาย forecast_n-2…n+2 เป็นหลายแถว และเก็บ snapshot ราคาไว้ใน fact (docs/02-Database.md:22).
+มีข้อกำหนดเรื่อง primary key/unique, CHECK, foreign key และดัชนีตาม company/sku/month เพื่อให้ query เร็ว รวมถึงข้อเสนอ SCD สำหรับราคาหากต้องเก็บช่วงเวลา (docs/02-Database.md:33, docs/02-Database.md:44, docs/02-Database.md:142).
+API และการบูรณาการ
+
+ผู้ใช้ต้องพิสูจน์ตัวตนด้วย JWT ส่วน endpoint ธุรกิจต้องมี X-API-Key, และบริการภายในใช้ shared secret กับ /internal/validate (docs/04-API.md:25, docs/04-API.md:39).
+Auth API ครอบคลุม register/login/refresh/logout/reset-password, การจัดการ API key และโปรไฟล์ (docs/04-API.md:60).
+Data API มี /v1/forecast, /v1/forecast/aggregate, /v1/saleforecast (พร้อมกฎ anchor_month และ requirement ในการบันทึก audit log ทุก method), /v1/forecast-runs, /v1/prices, /v1/audit-logs, และ log endpoints /v1/logs|logs/stats|logs (DELETE) (docs/04-API.md:93, docs/04-API.md:116, docs/04-API.md:229, docs/04-API.md:255, docs/04-API.md:303, docs/04-API.md:320, docs/04-API.md:328).
+Ingest API รองรับ POST /v1/upload (multipart) และ POST /v1/manual สำหรับกรอกเป็น JSON list ต่อ anchor month (docs/04-API.md:436).
+มีกลยุทธ์ versioning (/v1), cursor pagination, รูปแบบ error มาตรฐาน, และอัตราจำกัด 600 req/นาที (Logs 100 req/นาที) พร้อม header แจ้ง quota (docs/04-API.md:500, docs/04-API.md:517, docs/04-API.md:536, docs/04-API.md:573).
+Observability & Logging
+
+ทุกบริการส่งล็อกแบบ JSON เข้า Redis Stream เดียว (service:logs) แล้ว data-service ให้ frontend เปิดดู, กรอง, เคลียร์ พร้อม auto-trim 10,000 รายการ (README.md:220, README.md:234, docs/01-Architecture.md:160, docs/01-Architecture.md:181).
+ล็อกเก็บระดับ Error/Warn/Info/Debug, แนบ requestId/timestamp และ config redis health check ใน docker (docs/01-Architecture.md:189, docs/06-DevOps.md:216).
+ความปลอดภัย & การกำกับดูแล
+
+นโยบาย Hashing password/API key, จำกัด CORS, มี rate limiting, กำหนด health check ต่อบริการ, และระบุให้ใช้ JWT/secret ที่แข็งแรงพร้อม Redis password ใน production (docs/01-Architecture.md:138, README.md:364, README.md:382).
+Audit log จำเป็นสำหรับทุกการเรียก /v1/saleforecast, เก็บ action, record_id, performer และ metadata เพื่อการตรวจสอบ (docs/04-API.md:229).
+Cloud deployment guide ย้ำให้ตั้งค่า secrets, SSL/TLS, และ CORS domain ที่ถูกต้องก่อนเปิดบริการ (CLOUD-DEPLOYMENT.md:7, CLOUD-DEPLOYMENT.md:118, CLOUD-DEPLOYMENT.md:146).
+DevOps & การปรับใช้
+
+โครงการมี compose หลายแบบ: full stack, backend-only, frontend-only พร้อมสคริปต์ PowerShell start/stop dev และตัวเลือกพัฒนา hybrid/docker/local (docs/06-DevOps.md:15, docs/06-DevOps.md:118, docs/06-DevOps.md:160).
+README ระบุขั้นตอนตั้งค่า manual รวมถึง .env สำหรับแต่ละบริการและชุดตัวแปร production (README.md:75, README.md:288, README.md:382).
+สำหรับคลาวด์ รองรับ Kubernetes manifests, Docker Compose production และ Terraform บน AWS พร้อมคำแนะนำตรวจสุขภาพหลัง deploy (CLOUD-DEPLOYMENT.md:5, CLOUD-DEPLOYMENT.md:32, CLOUD-DEPLOYMENT.md:49, CLOUD-DEPLOYMENT.md:78).
+ทิศทางอนาคต
+
+Roadmap เพิ่มฟีเจอร์ เช่น log search/export, alerting, advanced forecasting/streaming/multi-tenant, component เสริม frontend (README.md:397, docs/05-Frontend.md:172).
+หากต้องการขยายประเด็นใด (เช่น requirement ตามไฟล์ Excel หรือ UAT ในสเปรดชีต) แจ้งได้เลยครับ.

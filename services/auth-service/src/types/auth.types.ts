@@ -9,6 +9,7 @@ export interface User {
   lastName?: string;
   isActive: boolean;
   emailVerified: boolean;
+  mustChangePassword?: boolean;
   lastLoginAt?: Date;
   createdAt: Date;
   updatedAt: Date;

@@ -23,6 +23,12 @@ function pickForecastQuantity(anchorMonth: string, months: Array<{ month: string
   return Number.isFinite(fallback) ? fallback : 0;
 }
 
+function normalizeSalesHierarchyValue(value?: string | null) {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed.length ? trimmed : null;
+}
+
 async function recordSalesForecastHistory(params: {
   anchorMonth: string;
   line: any;
@@ -153,25 +159,23 @@ export async function upsertDimensions(input: any) {
     update: {},
     create: { material_id: material.material_id, pack_size: input.pack_size, uom_id: uom.uom_id }
   });
-  const salesOrg = await prisma.dim_sales_org.upsert({
-    where: {
-      division_sales_organization_sales_office_sales_group_sales_representative: {
-        division: input.division || null,
-        sales_organization: input.sales_organization || null,
-        sales_office: input.sales_office || null,
-        sales_group: input.sales_group || null,
-        sales_representative: input.sales_representative || null
-      }
-    },
-    update: {},
-    create: {
-      division: input.division || null,
-      sales_organization: input.sales_organization || null,
-      sales_office: input.sales_office || null,
-      sales_group: input.sales_group || null,
-      sales_representative: input.sales_representative || null
-    }
+  const salesOrgWhere = {
+    division: normalizeSalesHierarchyValue(input.division),
+    sales_organization: normalizeSalesHierarchyValue(input.sales_organization),
+    sales_office: normalizeSalesHierarchyValue(input.sales_office),
+    sales_group: normalizeSalesHierarchyValue(input.sales_group),
+    sales_representative: normalizeSalesHierarchyValue(input.sales_representative)
+  };
+
+  let salesOrg = await prisma.dim_sales_org.findFirst({
+    where: salesOrgWhere
   });
+
+  if (!salesOrg) {
+    salesOrg = await prisma.dim_sales_org.create({
+      data: salesOrgWhere
+    });
+  }
 
   return { company, dept, dc, uom, material, sku, salesOrg };
 }

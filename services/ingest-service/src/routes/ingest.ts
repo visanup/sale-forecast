@@ -1,16 +1,18 @@
 import type { Prisma } from '@prisma/client';
 import { Router, type Request, type Response, type RequestHandler } from 'express';
 import multer from 'multer';
-import { z } from 'zod';
 import { manualPayloadSchema } from '../schemas/ingest.schema.js';
 import { createRun, insertForecastRows, upsertDimensions, writeSalesForecastHistory } from '../services/ingest.service.js';
 import xlsx from 'xlsx';
 import { writeAuditLog } from '../services/audit.service.js';
 import { resolveRequestActor, withActorMetadata } from '../utils/requestActor.js';
+import { assertMonthlyAccessUnlocked, MonthlyAccessLockedError } from '../services/monthlyAccessGuard.js';
 
 export const ingestRouter = Router();
 const upload = multer();
 const uploadSingle: RequestHandler = upload.single('file') as unknown as RequestHandler;
+const DEFAULT_DC_CODE = 'NA';
+const DEFAULT_DC_DESC = 'N/A';
 
 type ColumnType = 'string' | 'number';
 
@@ -116,31 +118,46 @@ ingestRouter.post('/upload', uploadSingle, async (req: Request, res: Response) =
       });
     }
     // Map header fields per docs here (simplified):
+    await assertMonthlyAccessUnlocked(anchorMonth, actor);
     const run = await createRun(anchorMonth, 'upload');
     const processedRows = rows.length;
     let factRowsInserted = 0;
-    for (const r of rows) {
+    for (const [rowIndex, r] of rows.entries()) {
       const companyName = normalizeString(r['ชื่อบริษัท'] ?? r['companyName']);
-      const companyDesc = normalizeString(r['SAPCode'] ?? r['company_desc'] ?? companyName);
+      const companyDesc = normalizeString(r['company_desc'] ?? companyName);
       const companyCode = normalizeString(
-        r['company_code'] ?? r['customer_code'] ?? r['SAP Code'] ?? r['CUSTOMER_CODE']);
+        r['company_code'] ?? r['customer_code'] ?? r['SAP Code'] ?? r['CUSTOMER_CODE']
+      );
       const deptCode = normalizeString(r['หน่วยงาน'] ?? r['dept_code']);
-      const dcCode = normalizeString(r['Distribution Channel'] ?? r['dc_code']);
+      // Default Distribution Channel if not provided in the new template
+      const dcCode = normalizeString(r['Distribution Channel'] ?? r['dc_code']) ?? DEFAULT_DC_CODE;
       const materialDesc = normalizeString(r['ชื่อสินค้า'] ?? r['material_desc']);
       const materialCode = normalizeString(
-        r['material_code'] ?? r['materialCode'] ?? materialDesc ?? r['SKU'] ?? r['sku']
+        r['material_code'] ?? r['materialCode'] ?? r['SAPCode'] ?? materialDesc ?? r['SKU'] ?? r['sku']
       );
       const packSize = normalizeString(r['Pack Size'] ?? r['pack_size']);
       const uomCode = normalizeString(r['หน่วย'] ?? r['uom_code']);
-      if (!companyCode || !deptCode || !dcCode || !materialCode || !packSize || !uomCode) {
-        throw new Error('missing required lookup fields in uploaded row');
+      const missingFields: string[] = [];
+      if (!companyCode) missingFields.push('company_code');
+      if (!deptCode) missingFields.push('dept_code');
+      if (!dcCode) missingFields.push('Distribution Channel');
+      if (!materialCode) missingFields.push('material_code');
+      if (!packSize) missingFields.push('pack_size');
+      if (!uomCode) missingFields.push('uom_code');
+      if (missingFields.length > 0) {
+        const rowNumber = rowIndex + 1; // match the on-screen preview numbering
+        throw new Error(
+          `missing required lookup fields in uploaded row (row ${rowNumber}: ${missingFields.join(', ')})`
+        );
       }
       const line = {
         company_code: companyCode,
         company_desc: companyDesc ?? companyName ?? companyCode,
         dept_code: deptCode,
         dc_code: dcCode,
-        dc_desc: normalizeString(r['Distribution Channel Description'] ?? r['dc_desc']) ?? dcCode,
+        dc_desc:
+          normalizeString(r['Distribution Channel Description'] ?? r['dc_desc']) ??
+          (dcCode || DEFAULT_DC_DESC),
         division: normalizeString(r['Division']),
         sales_organization: normalizeString(r['Sales Organization']),
         sales_office: normalizeString(r['Sales Office']),
@@ -217,6 +234,9 @@ ingestRouter.post('/upload', uploadSingle, async (req: Request, res: Response) =
       factRowsInserted
     });
   } catch (e: any) {
+    if (e instanceof MonthlyAccessLockedError) {
+      return res.status(403).json({ error: { code: e.code, message: e.message } });
+    }
     return res.status(400).json({ error: { code: 'BAD_REQUEST', message: e.message } });
   }
 });
@@ -233,44 +253,68 @@ ingestRouter.post('/manual', async (req, res) => {
   const parsed = manualPayloadSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: { code: 'BAD_REQUEST', message: parsed.error.message } });
   const { anchorMonth, lines } = parsed.data;
-  const run = await createRun(anchorMonth, 'manual');
-  let factRowsInserted = 0;
   const actor = resolveRequestActor(req as any);
-  for (const line of lines) {
-    const dim = await upsertDimensions(line);
-    const createdCount = await insertForecastRows(run.run_id, line, dim, anchorMonth);
-    await writeSalesForecastHistory({
+
+  try {
+    await assertMonthlyAccessUnlocked(anchorMonth, actor);
+    const run = await createRun(anchorMonth, 'manual');
+    let factRowsInserted = 0;
+
+    for (const line of lines) {
+      const resolvedDcCode =
+        typeof line.dc_code === 'string' && line.dc_code.trim().length > 0
+          ? line.dc_code.trim()
+          : DEFAULT_DC_CODE;
+      const resolvedDcDesc =
+        typeof line.dc_desc === 'string' && line.dc_desc.trim().length > 0
+          ? line.dc_desc.trim()
+          : resolvedDcCode || DEFAULT_DC_DESC;
+      const normalizedLine = {
+        ...line,
+        dc_code: resolvedDcCode,
+        dc_desc: resolvedDcDesc
+      };
+      const dim = await upsertDimensions(normalizedLine);
+      const createdCount = await insertForecastRows(run.run_id, normalizedLine, dim, anchorMonth);
+      await writeSalesForecastHistory({
+        anchorMonth,
+        line: normalizedLine,
+        dim,
+        runId: run.run_id,
+        source: 'manual',
+        factRowsInserted: createdCount,
+        actor
+      });
+      factRowsInserted += createdCount;
+    }
+
+    const baseMetadata: Prisma.InputJsonObject = {
       anchorMonth,
-      line,
-      dim,
-      runId: run.run_id,
-      source: 'manual',
-      factRowsInserted: createdCount,
-      actor
+      lineCount: lines.length,
+      insertedRows: lines.length,
+      factRowsInserted,
+      runId: run.run_id.toString(),
+      source: 'manual'
+    };
+    await writeAuditLog({
+      service: 'ingest-service',
+      endpoint: '/v1/manual',
+      action: 'POST',
+      recordId: run.run_id.toString(),
+      performedBy: actor.performedBy,
+      userId: actor.user?.id ?? null,
+      userEmail: actor.user?.email ?? null,
+      userUsername: actor.user?.username ?? null,
+      clientId: actor.clientId ?? null,
+      metadata: withActorMetadata(baseMetadata, actor)
     });
-    factRowsInserted += createdCount;
+
+    return res.status(201).json({ runId: Number(run.run_id) });
+  } catch (error: any) {
+    if (error instanceof MonthlyAccessLockedError) {
+      return res.status(403).json({ error: { code: error.code, message: error.message } });
+    }
+    console.error('manual_upload_failed', error);
+    return res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: error?.message || 'Manual entry failed' } });
   }
-
-  const baseMetadata: Prisma.InputJsonObject = {
-    anchorMonth,
-    lineCount: lines.length,
-    insertedRows: lines.length,
-    factRowsInserted,
-    runId: run.run_id.toString(),
-    source: 'manual'
-  };
-  await writeAuditLog({
-    service: 'ingest-service',
-    endpoint: '/v1/manual',
-    action: 'POST',
-    recordId: run.run_id.toString(),
-    performedBy: actor.performedBy,
-    userId: actor.user?.id ?? null,
-    userEmail: actor.user?.email ?? null,
-    userUsername: actor.user?.username ?? null,
-    clientId: actor.clientId ?? null,
-    metadata: withActorMetadata(baseMetadata, actor)
-  });
-
-  return res.status(201).json({ runId: Number(run.run_id) });
 });

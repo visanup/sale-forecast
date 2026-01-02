@@ -60,12 +60,12 @@ export function GuidePage() {
             <BookOpen className="h-10 w-10 text-white" />
           </div>
           <h1 className="text-4xl font-bold text-slate-900 dark:text-white">
-            Demand Forecasting Guide
+            Sales Forecasting Guide
           </h1>
           <p className="mx-auto max-w-2xl text-base text-slate-600 dark:text-slate-300">
             {isAdminUser
-              ? 'คู่มือการใช้งาน Web App Demand Forecasting และตัวอย่าง API Document สำหรับดึงข้อมูลพื้นฐานด้วย API Key'
-              : 'คู่มือการใช้งาน Web App Demand Forecasting'}
+              ? 'คู่มือการใช้งาน Web App Sales Forecasting และตัวอย่าง API Document สำหรับดึงข้อมูลพื้นฐานด้วย API Key'
+              : 'คู่มือการใช้งาน Web App Sales Forecasting'}
           </p>
         </header>
 

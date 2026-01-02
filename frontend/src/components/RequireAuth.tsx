@@ -4,10 +4,11 @@ import { useAuth } from '../hooks/useAuth';
 
 type RequireAuthProps = {
   children: ReactNode;
+  allowPasswordChange?: boolean;
 };
 
-export function RequireAuth({ children }: RequireAuthProps) {
-  const { isAuthenticated, loading } = useAuth();
+export function RequireAuth({ children, allowPasswordChange = false }: RequireAuthProps) {
+  const { isAuthenticated, loading, user } = useAuth();
   const location = useLocation();
 
   if (loading) {
@@ -23,6 +24,10 @@ export function RequireAuth({ children }: RequireAuthProps) {
 
   if (!isAuthenticated) {
     return <Navigate to="/login" state={{ from: location }} replace />;
+  }
+
+  if (user?.mustChangePassword && !allowPasswordChange) {
+    return <Navigate to="/force-password-change" state={{ from: location }} replace />;
   }
 
   return <>{children}</>;

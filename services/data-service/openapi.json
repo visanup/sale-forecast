@@ -96,6 +96,42 @@
         "responses": { "200": { "description": "OK" }, "404": { "description": "Not Found" } }
       }
     }
+    ,
+    "/v1/monthly-access/seed-default": {
+      "post": {
+        "summary": "Seed default monthly access records",
+        "security": [{ "ApiKeyAuth": [] }],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "anchor_months": {
+                    "type": "array",
+                    "items": { "type": "string", "pattern": "^\\d{4}-(0[1-9]|1[0-2])$" }
+                  },
+                  "users": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": ["user_email"],
+                      "properties": {
+                        "user_email": { "type": "string", "format": "email" },
+                        "user_id": { "type": "string" },
+                        "user_name": { "type": "string" }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "200": { "description": "OK" } }
+      }
+    }
   },
   "components": {
     "securitySchemes": {

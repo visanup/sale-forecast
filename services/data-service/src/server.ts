@@ -5,7 +5,7 @@ import crypto from 'crypto';
 import pinoHttp from 'pino-http';
 import type { HttpLogger } from 'pino-http';
 import cors from 'cors';
-import helmet from 'helmet';
+import helmetLib from 'helmet';
 import { config } from './config/config.js';
 import { apiKeyAuth } from './middleware/apiKeyAuth.js';
 import { forecastRouter } from './routes/forecast.js';
@@ -13,6 +13,8 @@ import { pricesRouter } from './routes/prices.js';
 import { logsRouter } from './routes/logs.js';
 import { salesForecastRouter } from './routes/saleforecast.js';
 import { auditLogsRouter } from './routes/auditLogs.js';
+import { monthlyAccessRouter } from './routes/monthlyAccess.js';
+import { startMonthlyAccessSeedJob } from './jobs/monthlyAccessSeedJob.js';
 import { createRedisLogger } from './utils/redis-logger.js';
 
 const logger = createRedisLogger('data-service', process.env['LOG_LEVEL'] || 'info');
@@ -63,6 +65,8 @@ app.use((req, res, next) => {
   if (b.count > RATE_LIMIT_MAX) return res.status(429).json({ error: { code: 'RATE_LIMIT', message: 'Too many requests' } });
   next();
 });
+type HelmetMiddleware = (typeof import('helmet'))['default'];
+const helmet = helmetLib as unknown as HelmetMiddleware;
 app.use(helmet());
 app.use(cors({ origin: config.corsOrigins.length ? config.corsOrigins : true }));
 app.use(express.json());
@@ -207,5 +211,8 @@ app.use('/v1/prices', apiKeyAuth, pricesRouter);
 app.use('/v1/audit-logs', apiKeyAuth, auditLogsRouter);
 app.use('/v1/logs', apiKeyAuth, logsRouter);
 app.use('/v1/saleforecast', apiKeyAuth, salesForecastRouter);
+app.use('/v1/monthly-access', apiKeyAuth, monthlyAccessRouter);
+
+startMonthlyAccessSeedJob(logger);
 
 app.listen(config.port, () => logger.info({ port: config.port }, 'data-service listening'));

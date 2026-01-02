@@ -8,12 +8,16 @@ import { body } from 'express-validator';
 import { validateRequest } from '../middleware/validation.middleware';
 import { requireAuth } from '../middleware/auth.middleware';
 import { TokenUtil } from '../utils/token.util';
+import { MonthlyAccessProvisioner } from '../services/monthlyAccessProvisioner.service';
 
 const prisma = new PrismaClient();
 const auditService = new AuditService(prisma);
-const authService = new AuthService(prisma, auditService);
+const monthlyAccessProvisioner = new MonthlyAccessProvisioner();
+const authService = new AuthService(prisma, auditService, monthlyAccessProvisioner);
 
 const router = Router();
+const BETAGRO_EMAIL_REGEX = /^[^@\s]+@betagro\.com$/i;
+const BETAGRO_EMAIL_MESSAGE = 'Email must be a @betagro.com address';
 
 /**
  * @openapi
@@ -42,12 +46,18 @@ const router = Router();
 router.post(
   '/register',
   [
-    body('email').isEmail().withMessage('Email must be valid'),
+    body('email')
+      .isEmail()
+      .withMessage('Email must be valid')
+      .customSanitizer(value => (typeof value === 'string' ? value.trim().toLowerCase() : value))
+      .matches(BETAGRO_EMAIL_REGEX)
+      .withMessage(BETAGRO_EMAIL_MESSAGE),
     body('username')
       .isString()
       .trim()
       .isLength({ min: 3, max: 100 })
-      .withMessage('Username must be between 3 and 100 characters'),
+      .withMessage('Username must be between 3 and 100 characters')
+      .customSanitizer(value => (typeof value === 'string' ? value.trim().toLowerCase() : value)),
     body('password')
       .isString()
       .isLength({ min: 8 })

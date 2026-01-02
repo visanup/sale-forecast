@@ -27,7 +27,7 @@ app.use(helmet());
 app.use(cors({
   origin: config.corsOrigin,
   credentials: config.corsCredentials,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-ID']
 }));
 
@@ -93,7 +93,7 @@ app.use('/', healthRoutes);
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/profile', profileRoutes);
 app.use('/api/v1/api-keys', apiKeyRoutes);
-app.use('/admin', adminRouter);
+app.use('/api/v1/admin', adminRouter);
 app.use('/internal', internalRoutes);
 
 // Error handling

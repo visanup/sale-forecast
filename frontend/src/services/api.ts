@@ -281,6 +281,13 @@ export const authApi = {
       body: JSON.stringify(input)
     });
   },
+  async changePassword(input: { currentPassword: string; newPassword: string }) {
+    return http<ApiResponse<any>>(buildAuthUrl('/api/v1/profile/change-password'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input)
+    });
+  },
   async me() {
     return http<ApiResponse<any>>(buildAuthUrl('/api/v1/auth/me'), { method: 'GET' });
   }
@@ -351,6 +358,126 @@ export const dataApi = {
   }
 };
 
+export type AdminUser = {
+  id: string;
+  email: string;
+  username: string;
+  firstName?: string | null;
+  lastName?: string | null;
+  role?: string;
+  isActive: boolean;
+  emailVerified?: boolean;
+  mustChangePassword?: boolean;
+  lastLoginAt?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export const adminApi = {
+  async listUsers() {
+    const res = await http<ApiResponse<{ users: AdminUser[] }>>(buildAuthUrl('/api/v1/admin/users'), {
+      method: 'GET'
+    });
+    return unwrapApiResponse(res);
+  },
+  async updateUser(userId: string, payload: { mustChangePassword?: boolean; isActive?: boolean }) {
+    const res = await http<ApiResponse<AdminUser>>(buildAuthUrl(`/api/v1/admin/users/${userId}`), {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    return unwrapApiResponse(res);
+  },
+  async resetPassword(userId: string, payload?: { newPassword?: string }) {
+    const res = await http<ApiResponse<{ user: AdminUser; temporaryPassword: string }>>(
+      buildAuthUrl(`/api/v1/admin/users/${userId}/reset-password`),
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload ?? {})
+      }
+    );
+    return unwrapApiResponse(res);
+  },
+  async seedDefaults() {
+    const res = await http<ApiResponse<{ count: number; users: Array<{ email: string; action: string }> }>>(
+      buildAuthUrl('/api/v1/admin/users/seed'),
+      { method: 'POST' }
+    );
+    return unwrapApiResponse(res);
+  }
+};
+
+export type MonthlyAccessRecord = {
+  id: string;
+  user_email: string;
+  user_id?: string | null;
+  user_name?: string | null;
+  anchor_month: string;
+  is_locked: boolean;
+  locked_by?: string | null;
+  locked_at?: string | null;
+  notes?: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type MonthlyAccessFilter = {
+  search?: string;
+  anchor_month?: string;
+  status?: 'locked' | 'unlocked';
+};
+
+export const monthlyAccessApi = {
+  async list(params: MonthlyAccessFilter = {}) {
+    const sp = new URLSearchParams();
+    if (params.search) sp.set('search', params.search);
+    if (params.anchor_month) sp.set('anchor_month', params.anchor_month);
+    if (params.status) sp.set('status', params.status);
+    const qs = sp.toString();
+    return http<{ data: MonthlyAccessRecord[] }>(
+      `${DATA_BASE}/v1/monthly-access${qs ? `?${qs}` : ''}`,
+      { headers: { 'x-api-key': DATA_API_KEY } }
+    );
+  },
+  async upsert(payload: {
+    user_email: string;
+    anchor_month: string;
+    user_id?: string;
+    user_name?: string;
+    is_locked?: boolean;
+  }) {
+    return http<{ data: MonthlyAccessRecord }>(`${DATA_BASE}/v1/monthly-access`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': DATA_API_KEY
+      },
+      body: JSON.stringify(payload)
+    });
+  },
+  async update(recordId: string, payload: { is_locked?: boolean }) {
+    return http<{ data: MonthlyAccessRecord }>(`${DATA_BASE}/v1/monthly-access/${recordId}`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': DATA_API_KEY
+      },
+      body: JSON.stringify(payload)
+    });
+  },
+  async bulkToggle(payload: { action: 'LOCK' | 'UNLOCK'; ids?: string[]; filter?: MonthlyAccessFilter }) {
+    return http<{ data: { updated: number } }>(`${DATA_BASE}/v1/monthly-access/bulk-toggle`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': DATA_API_KEY
+      },
+      body: JSON.stringify(payload)
+    });
+  }
+};
+
 export type SalesForecastMonthsEntry = {
   month: string;
   qty: number;
@@ -376,6 +503,12 @@ export type SalesForecastMetadata = {
   uom_code?: string | null;
   fact_rows_inserted?: number;
   dim_ids?: Record<string, string | null | undefined>;
+  confirmed?: boolean;
+  confirmed_by?: string | null;
+  confirmed_at?: string | null;
+  confirm_state?: string | null;
+  confirm_updated_at?: string | null;
+  confirm_notes?: string | null;
   [key: string]: unknown;
 };
 
@@ -408,6 +541,32 @@ type DimQueryParams = {
   signal?: AbortSignal;
 };
 
+type DimPaging = {
+  next?: string | null;
+};
+
+type DimListResponse<T> = {
+  data: T[];
+  paging?: DimPaging;
+};
+
+async function uploadDimCsv(path: string, file: File, payload?: { target?: string; anchorMonth?: string }) {
+  const fd = new FormData();
+  fd.append('file', file);
+  fd.append('mode', 'replace');
+  if (payload?.target) {
+    fd.append('target', payload.target);
+  }
+  if (payload?.anchorMonth) {
+    fd.append('anchorMonth', payload.anchorMonth);
+  }
+  return http<{ data?: { imported?: number } }>(`${DIM_BASE}${path}`, {
+    method: 'POST',
+    headers: { 'x-api-key': DATA_API_KEY },
+    body: fd
+  });
+}
+
 function buildDimQuery(params?: DimQueryParams) {
   if (!params) return '';
   const sp = new URLSearchParams();
@@ -420,39 +579,93 @@ function buildDimQuery(params?: DimQueryParams) {
 
 export const dimApi = {
   async companies(params?: DimQueryParams) {
-    return http<{ data: any[] }>(`${DIM_BASE}/v1/dim/companies${buildDimQuery(params)}`, {
+    return http<DimListResponse<any>>(`${DIM_BASE}/v1/dim/companies${buildDimQuery(params)}`, {
       headers: { 'x-api-key': DATA_API_KEY },
       signal: params?.signal
     });
   },
   async depts(params?: DimQueryParams) {
-    return http<{ data: any[] }>(`${DIM_BASE}/v1/dim/depts${buildDimQuery(params)}`, {
+    return http<DimListResponse<any>>(`${DIM_BASE}/v1/dim/depts${buildDimQuery(params)}`, {
       headers: { 'x-api-key': DATA_API_KEY },
       signal: params?.signal
     });
   },
   async distributionChannels(params?: DimQueryParams) {
-    return http<{ data: any[] }>(`${DIM_BASE}/v1/dim/distribution-channels${buildDimQuery(params)}`, {
-      headers: { 'x-api-key': DATA_API_KEY },
-      signal: params?.signal
-    });
+    return http<DimListResponse<any>>(
+      `${DIM_BASE}/v1/dim/distribution-channels${buildDimQuery(params)}`,
+      {
+        headers: { 'x-api-key': DATA_API_KEY },
+        signal: params?.signal
+      }
+    );
   },
   async materials(params?: DimQueryParams) {
-    return http<{ data: any[] }>(`${DIM_BASE}/v1/dim/materials${buildDimQuery(params)}`, {
+    return http<DimListResponse<any>>(`${DIM_BASE}/v1/dim/materials${buildDimQuery(params)}`, {
       headers: { 'x-api-key': DATA_API_KEY },
       signal: params?.signal
     });
   },
   async skus(params?: DimQueryParams) {
-    return http<{ data: any[] }>(`${DIM_BASE}/v1/dim/skus${buildDimQuery(params)}`, {
+    return http<DimListResponse<any>>(`${DIM_BASE}/v1/dim/skus${buildDimQuery(params)}`, {
       headers: { 'x-api-key': DATA_API_KEY },
       signal: params?.signal
     });
   },
   async salesOrgs(params?: DimQueryParams) {
-    return http<{ data: any[] }>(`${DIM_BASE}/v1/dim/sales-orgs${buildDimQuery(params)}`, {
+    return http<DimListResponse<any>>(`${DIM_BASE}/v1/dim/sales-orgs${buildDimQuery(params)}`, {
       headers: { 'x-api-key': DATA_API_KEY },
       signal: params?.signal
+    });
+  },
+  async importDeptsCsv(file: File) {
+    return uploadDimCsv('/v1/dim/depts/import', file);
+  },
+  async importCompaniesCsv(file: File) {
+    return uploadDimCsv('/v1/dim/companies/import', file);
+  },
+  async importMaterialsCsv(file: File) {
+    return uploadDimCsv('/v1/dim/material-sku-uom/import', file);
+  }
+};
+
+export type MonthlyAccessMaterialRecord = {
+  id: string;
+  anchor_month: string;
+  material_code: string;
+  material_desc?: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type MonthlyAccessMaterialFilter = {
+  search?: string;
+  anchor_month?: string;
+  limit?: number;
+  cursor?: string;
+};
+
+export const monthlyAccessMaterialApi = {
+  async list(params: MonthlyAccessMaterialFilter = {}) {
+    const sp = new URLSearchParams();
+    if (params.search) sp.set('search', params.search);
+    if (params.anchor_month) sp.set('anchor_month', params.anchor_month);
+    if (Number.isFinite(params.limit)) sp.set('limit', String(params.limit));
+    if (params.cursor) sp.set('cursor', params.cursor);
+    const qs = sp.toString();
+    return http<DimListResponse<MonthlyAccessMaterialRecord>>(
+      `${DATA_BASE}/v1/monthly-access/materials${qs ? `?${qs}` : ''}`,
+      { headers: { 'x-api-key': DATA_API_KEY } }
+    );
+  },
+  async importCsv(file: File, anchorMonth: string) {
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('mode', 'replace');
+    fd.append('anchorMonth', anchorMonth);
+    return http<{ data?: { imported?: number } }>(`${DATA_BASE}/v1/monthly-access/materials/import`, {
+      method: 'POST',
+      headers: { 'x-api-key': DATA_API_KEY },
+      body: fd
     });
   }
 };
@@ -478,36 +691,24 @@ export const ingestApi = {
     lines: Array<{
       company_code: string;
       company_desc?: string;
-      Company_code?: string;
       dept_code: string;
-      dc_code: string;
-      division?: string;
-      sales_organization?: string;
-      sales_office?: string;
-      sales_group?: string;
-      sales_representative?: string;
+      dc_code?: string;
       material_code: string;
       material_desc?: string;
       pack_size: string;
       uom_code: string;
-      n_2?: number;
-      n_1?: number;
-      n?: number;
       n1?: number;
       n2?: number;
       n3?: number;
-      price?: number;
-      distributionChannels?: string;
     }>;
   }) {
     const monthOffsets: Array<{ key: keyof (typeof payload)['lines'][number]; delta: number }> = [
-      { key: 'n_2', delta: -2 },
-      { key: 'n_1', delta: -1 },
-      { key: 'n', delta: 0 },
       { key: 'n1', delta: 1 },
       { key: 'n2', delta: 2 },
       { key: 'n3', delta: 3 }
     ];
+
+    const DEFAULT_DC_CODE = 'NA';
 
     const addMonth = (anchor: string, offset: number): string => {
       const [yearStr, monthStr] = anchor.split('-');
@@ -521,16 +722,13 @@ export const ingestApi = {
       const mm = String(date.getUTCMonth() + 1).padStart(2, '0');
       return `${yyyy}-${mm}`;
     };
-
+    type ManualLine = (typeof payload)['lines'][number];
     const requiredFields: Array<
-      keyof Omit<
-        (typeof payload)['lines'][number],
-        'n_2' | 'n_1' | 'n' | 'n1' | 'n2' | 'n3' | 'price' | 'distributionChannels' | 'material_desc'
-      >
-    > = ['company_code', 'dept_code', 'dc_code', 'material_code', 'pack_size', 'uom_code'];
+      keyof Omit<ManualLine, 'n1' | 'n2' | 'n3' | 'material_desc' | 'dc_code'>
+    > = ['company_code', 'dept_code', 'material_code', 'pack_size', 'uom_code'];
 
     const normalizedLines = payload.lines.map((line, index) => {
-      const { n_2, n_1, n, n1, n2, n3, price, distributionChannels: _distributionChannels, ...rest } = line;
+      const { n1, n2, n3, ...rest } = line;
       const months = monthOffsets.reduce<Array<{ month: string; qty: number; price?: number }>>((acc, entry) => {
         const value = line[entry.key];
         if (value === undefined || value === null) {
@@ -544,9 +742,6 @@ export const ingestApi = {
           month: addMonth(payload.anchorMonth, entry.delta),
           qty: numeric
         };
-        if (price !== undefined && Number.isFinite(price)) {
-          monthEntry.price = Number(price);
-        }
         acc.push(monthEntry);
         return acc;
       }, []);
@@ -562,8 +757,14 @@ export const ingestApi = {
         throw new Error(`Line #${index + 1} requires at least one month quantity`);
       }
 
+      const dcCode =
+        typeof rest.dc_code === 'string' && rest.dc_code.trim().length > 0
+          ? rest.dc_code.trim()
+          : DEFAULT_DC_CODE;
+
       return {
         ...rest,
+        dc_code: dcCode,
         months
       };
     });

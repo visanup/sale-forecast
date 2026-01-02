@@ -11,12 +11,16 @@ Aggregated data APIs (forecast, prices) protected by internal API key validation
 - `DATABASE_URL`
 - `CORS_ORIGINS`
 - `AUTH_VALIDATE_URL` (e.g. `http://localhost:6601/internal/validate`)
+- `AUTH_SERVICE_URL` (base URL for auth-service internal APIs)
 - `INTERNAL_SHARED_SECRET` (must match auth-service)
+- `STATIC_API_KEY` (optional fallback API key for service-to-service calls)
+- `MONTHLY_ACCESS_SEED_INTERVAL_MS` (cron interval for default monthly access job)
 
 ## Endpoints
 - Health: `GET /health`
 - Prices: `GET /v1/prices` (header `X-API-Key` required)
 - Forecast: `GET /v1/forecast`, `GET /v1/forecast/aggregate` (header `X-API-Key` required)
+- Monthly Access: `POST /v1/monthly-access/seed-default` to force seeding default access rows (header `X-API-Key`)
 
 ## Quick test
 ```bash

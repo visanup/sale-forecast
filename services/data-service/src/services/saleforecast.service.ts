@@ -24,6 +24,8 @@ function anchorMonthToDate(anchorMonth: string) {
   return new Date(`${anchorMonth}-01T00:00:00.000Z`);
 }
 
+const AUDIT_ACTOR_SERVICES = ['data-service', 'ingest-service'] as const;
+
 type AuditLogActor = {
   action: string;
   performed_at: Date;
@@ -102,6 +104,36 @@ export async function listSalesForecast(filters: SalesForecastFilters) {
         });
       }
 
+      const actorMatches = await prisma.audit_logs.findMany({
+        where: {
+          service: { in: [...AUDIT_ACTOR_SERVICES] },
+          record_id: { not: null },
+          OR: [
+            { user_username: { contains: search, mode: 'insensitive' } },
+            { user_email: { contains: search, mode: 'insensitive' } },
+            { user_id: { contains: search, mode: 'insensitive' } },
+            { performed_by: { contains: search, mode: 'insensitive' } },
+            { client_id: { contains: search, mode: 'insensitive' } }
+          ]
+        },
+        select: { record_id: true },
+        distinct: ['record_id'],
+        take: 5000
+      });
+
+      const actorRecordIds = actorMatches
+        .map((match) => match.record_id)
+        .filter((id): id is string => typeof id === 'string' && /^\d+$/.test(id))
+        .map((id) => BigInt(id));
+
+      if (actorRecordIds.length > 0) {
+        orConditions.push({
+          id: {
+            in: actorRecordIds
+          }
+        });
+      }
+
       where.OR = orConditions;
     }
   }
@@ -149,6 +181,15 @@ export async function listSalesForecast(filters: SalesForecastFilters) {
   }
 
   return records.map((record) => serializeForecast(record, auditMap.get(record.id.toString())));
+}
+
+export async function findSalesForecastRecord(recordId: string) {
+  if (!recordId || !/^\d+$/.test(recordId)) {
+    return null;
+  }
+  return prisma.saleforecast.findUnique({
+    where: { id: BigInt(recordId) }
+  });
 }
 
 export async function createSalesForecast(payload: SalesForecastPayload) {

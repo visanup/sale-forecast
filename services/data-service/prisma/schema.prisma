@@ -130,19 +130,18 @@ model saleforecast {
 }
 
 model audit_logs {
-  id           BigInt   @id @default(autoincrement())
-  service      String
-  endpoint     String
-  action       String
-  record_id    String?
-  performed_by String?
-  // 👇 เพิ่มฟิลด์เหล่านี้ให้ตรงกับ migration 20251020120000_audit_logs_user_columns
-  user_id        String?
-  user_email     String?
-  user_username  String?
-  client_id      String?
-  metadata     Json?
-  performed_at DateTime @default(now())
+  id            BigInt   @id @default(autoincrement())
+  service       String
+  endpoint      String
+  action        String
+  record_id     String?
+  performed_by  String?
+  metadata      Json?
+  performed_at  DateTime @default(now())
+  user_id       String?
+  user_email    String?
+  user_username String?
+  client_id     String?
 
   @@index([action], map: "idx_audit_logs_action")
   @@index([performed_at], map: "idx_audit_logs_performed_at")
@@ -155,4 +154,36 @@ model staging_forecast_uploads {
   raw_json    Json
   imported_at DateTime @default(now())
   errors      Json?
+}
+
+model monthly_access_control {
+  id           BigInt    @id @default(autoincrement())
+  user_email   String
+  user_id      String?
+  user_name    String?
+  anchor_month DateTime  @db.Date
+  is_locked    Boolean   @default(false)
+  locked_by    String?
+  locked_at    DateTime?
+  notes        String?
+  created_at   DateTime  @default(now())
+  updated_at   DateTime  @default(now()) @updatedAt
+
+  @@unique([user_email, anchor_month])
+  @@index([anchor_month], map: "idx_monthly_access_anchor_month")
+  @@map("monthly_access_control")
+}
+
+model monthly_access_control_material {
+  id            BigInt   @id @default(autoincrement())
+  anchor_month  DateTime @db.Date
+  material_code String
+  material_desc String?
+  created_at    DateTime @default(now())
+  updated_at    DateTime @default(now()) @updatedAt
+
+  @@unique([anchor_month, material_code])
+  @@index([anchor_month], map: "idx_monthly_access_material_anchor_month")
+  @@index([material_code], map: "idx_monthly_access_material_code")
+  @@map("monthly_access_control_material")
 }

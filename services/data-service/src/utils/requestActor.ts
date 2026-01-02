@@ -11,6 +11,7 @@ type JwtPayload = {
   sub?: string;
   email?: string;
   username?: string;
+  role?: string;
   exp?: number;
   [key: string]: unknown;
 };
@@ -21,6 +22,7 @@ export type RequestActor = {
     id: string;
     email?: string;
     username?: string;
+    role?: string;
   };
   clientId?: string | null;
 };
@@ -62,6 +64,7 @@ type ParsedTokenActor = {
     id: string;
     email?: string;
     username?: string;
+    role?: string;
   };
 };
 
@@ -96,6 +99,9 @@ function buildUserFromPayload(payload: JwtPayload) {
   }
   if (typeof payload.username === 'string' && payload.username.length > 0) {
     result.username = payload.username;
+  }
+  if (typeof (payload as any)?.role === 'string' && (payload as any).role.length > 0) {
+    result.role = (payload as any).role;
   }
 
   return result;

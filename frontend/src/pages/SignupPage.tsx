@@ -16,6 +16,10 @@ const passwordSchema = z
     message: 'Password must contain at least one special character'
   });
 
+const BETAGRO_EMAIL_MESSAGE = 'กรุณาใช้อีเมล @betagro.com เท่านั้น';
+const DUPLICATE_EMAIL_MESSAGE = 'Email นี้ถูกลงทะเบียนแล้ว';
+const DUPLICATE_USERNAME_MESSAGE = 'Username นี้ถูกใช้งานแล้ว';
+
 const schema = z.object({
   name: z
     .string()
@@ -23,7 +27,13 @@ const schema = z.object({
     .max(120, 'Full name must be below 120 characters')
     .transform(value => value.trim())
     .refine(value => value.length > 0, { message: 'Full name is required' }),
-  email: z.string().email('Please provide a valid email address'),
+  email: z
+    .string()
+    .trim()
+    .min(1, 'Email is required')
+    .email('Please provide a valid email address')
+    .transform(value => value.toLowerCase())
+    .refine(value => value.endsWith('@betagro.com'), { message: BETAGRO_EMAIL_MESSAGE }),
   password: passwordSchema
 });
 type FormValues = z.infer<typeof schema>;
@@ -32,6 +42,33 @@ export function SignupPage() {
   const { register, handleSubmit, formState: { errors, isSubmitting }, setError } = useForm<FormValues>({ resolver: zodResolver(schema) });
   const navigate = useNavigate();
   const { login } = useAuth();
+
+  function getFriendlyErrorMessage(error: unknown): string {
+    const rawMessage = typeof error === 'string' ? error : (error as any)?.message;
+    if (!rawMessage) return 'Signup failed';
+    const upper = String(rawMessage).toUpperCase();
+    const status = typeof (error as any)?.status === 'number' ? (error as any).status : undefined;
+
+    if (upper.includes('USERNAME_ALREADY_EXISTS')) {
+      return DUPLICATE_USERNAME_MESSAGE;
+    }
+
+    const looksLikeDuplicateEmail =
+      (status === 409 && !upper.includes('USERNAME')) ||
+      upper.includes('EMAIL_ALREADY_EXISTS') ||
+      upper.includes('USER_ALREADY_EXISTS') ||
+      upper.includes('EMAIL_IN_USE');
+
+    if (looksLikeDuplicateEmail) {
+      return DUPLICATE_EMAIL_MESSAGE;
+    }
+
+    if (upper.includes('@BETAGRO.COM') || upper.includes('BETAGRO')) {
+      return BETAGRO_EMAIL_MESSAGE;
+    }
+
+    return String(rawMessage);
+  }
 
   async function onSubmit(values: FormValues) {
     try {
@@ -44,7 +81,7 @@ export function SignupPage() {
       await login(values.email, values.password);
       navigate('/');
     } catch (e: any) {
-      setError('root', { message: e.message || 'Signup failed' });
+      setError('root', { message: getFriendlyErrorMessage(e) });
     }
   }
 
@@ -211,4 +248,3 @@ export function SignupPage() {
     </div>
   );
 }
-

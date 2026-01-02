@@ -33,6 +33,8 @@ interface Config {
 
   // 🔻 เพิ่มแฟล็กควบคุมอีเมล
   emailEnabled: boolean;
+  dataServiceUrl: string;
+  dataServiceApiKey: string;
 }
 
 export const config: Config = {
@@ -84,6 +86,10 @@ export const config: Config = {
 
   // Email flags
   emailEnabled: bool(process.env['EMAIL_ENABLED'], false),
+
+  // Data service integration
+  dataServiceUrl: process.env['DATA_SERVICE_URL'] || '',
+  dataServiceApiKey: process.env['DATA_SERVICE_API_KEY'] || ''
 };
 
 // ================== Validation ==================
